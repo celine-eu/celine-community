@@ -1,0 +1,16 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: celine-community
+
+build:
+  artifacts:
+    - image: ghcr.io/celine-eu/celine-community
+      docker:
+        dockerfile: Dockerfile
+  local:
+    push: false
+    useDockerCLI: true
+
+manifests:
+  rawYaml: []
