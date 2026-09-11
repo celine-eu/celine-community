@@ -9,6 +9,28 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    # The contract tests exercise the real manager_alerts/audit_events tables:
+    # they seed rows, call the API and assert what was persisted. A migrated
+    # database is part of the test fixture, not an optional extra.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: celine_community
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/celine_community
+
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -16,5 +38,6 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run ruff check .
+      - run: uv run alembic upgrade head
       - run: uv run pytest
       - run: docker build -t celine-community:test .
