@@ -14,11 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celine.community.db import get_db
 from celine.community.security.policy import policy
+from celine.community.services.recs import has_console_access
 from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
 
-COMMUNITY_ORG_TYPES = {"rec", "community", "energy-community"}
+#: The REC the development fixtures belong to. A **real** Keycloak organization
+#: alias, which is also the REC registry's community key — the two are one string
+#: on this platform. It was `greenland`, an alias no realm has ever had, and the
+#: `REC_REGISTRY_COMMUNITY_KEY` / `NUDGING_COMMUNITY_KEY` settings existed only to
+#: translate that fiction back at each downstream boundary.
+DEV_COMMUNITY_KEY = "gr-renewable-community"
+
 dt_token_provider = OidcClientCredentialsProvider(
     base_url=settings.oidc.base_url,
     client_id=settings.oidc.client_id or "",
@@ -55,23 +62,35 @@ def extract_token(request: Request) -> str | None:
     return None
 
 
+_DEV_SCOPE = "community.read community.devices.read community.nudging.read community.alerts.write"
+
+
 def _development_user() -> JwtUser:
-    claims = {
+    """A signed-in caller, without a Keycloak round trip.
+
+    Two fixtures, because the policy now has two branches that must both be
+    exercisable locally: `DEV_USER_PROFILE=manager` is an organization-scoped
+    manager of one REC, `DEV_USER_PROFILE=admin` is a realm admin who belongs to
+    no organization and sees every REC the registry lists.
+
+    The claim shape is the one a real KC 26.4 token carries, measured against the
+    celine realm: per-organization `type` **flattened** rather than nested under
+    `attributes`, and group names carrying a leading slash. A fixture that models
+    the shape wrongly is a fixture that passes while production denies.
+    """
+    admin = settings.dev_user_profile == "admin"
+
+    claims: dict = {
         "sub": settings.dev_user_sub,
         "email": settings.dev_user_email,
         "name": settings.dev_user_name,
         "preferred_username": "community-manager-dev",
         "locale": "it",
-        "groups": ["managers"],
-        "scope": (
-            "community.read community.devices.read community.nudging.read community.alerts.write"
-        ),
-        "organization": {
-            settings.dev_community_key: {
-                "attributes": {"type": ["community"]},
-                "groups": ["managers"],
-            }
-        },
+        "groups": ["/admins"] if admin else [],
+        "scope": _DEV_SCOPE,
+        "organization": {}
+        if admin
+        else {DEV_COMMUNITY_KEY: {"type": ["rec"], "groups": ["/managers"]}},
     }
     return JwtUser(
         sub=settings.dev_user_sub,
@@ -79,10 +98,7 @@ def _development_user() -> JwtUser:
         name=settings.dev_user_name,
         preferred_username="community-manager-dev",
         organizations=[
-            Organization(
-                alias=settings.dev_community_key,
-                attributes={"type": ["community"]},
-            )
+            Organization._from_claim(alias, data) for alias, data in claims["organization"].items()
         ],
         claims=claims,
     )
@@ -105,31 +121,23 @@ def get_user_from_request(request: Request) -> JwtUser:
         raise HTTPException(status_code=401, detail="Authentication failed") from exc
 
 
-def _is_community_org(org: Organization) -> bool:
-    return bool(
-        org.type in COMMUNITY_ORG_TYPES
-        or any(org.has_attribute("type", value) for value in COMMUNITY_ORG_TYPES)
-    )
-
-
-def resolve_user_community(user: JwtUser) -> str:
-    matching = [org.alias for org in user.organizations if _is_community_org(org)]
-    if len(matching) == 1:
-        return matching[0]
-    if not matching and len(user.organizations) == 1:
-        return user.organizations[0].alias
-    if len(matching) > 1:
-        raise HTTPException(status_code=403, detail="Multi-REC access is not supported in V1")
-    raise HTTPException(status_code=403, detail="REC organization membership required")
-
-
 async def require_console_access(
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    community_key = resolve_user_community(user)
-    decision = await policy.allow_console(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+    """Signed in, and a manager of *something*.
+
+    Deliberately does not name a REC. It guards `/api/ping` and `/api/me`, which
+    are about the caller rather than about one community; which REC is being
+    opened is the path parameter every other dependency already receives.
+    """
+    if not await has_console_access(user):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "No REC grants you access. Ask a REC administrator to add you to its "
+                "Keycloak organization as a manager."
+            ),
+        )
     return user
 
 

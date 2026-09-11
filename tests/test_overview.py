@@ -27,6 +27,16 @@ class RegistryResponse:
     parsed = RegistryPage()
 
 
+class Community:
+    key = "gr-renewable-community"
+    name = "Greenland Renewable Energy Community"
+
+
+class CommunityResponse:
+    status_code = 200
+    parsed = Community()
+
+
 class PopulationRegistry:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | None]] = []
@@ -41,20 +51,28 @@ class PopulationRegistry:
         self.calls.append((community_key, status))
         return RegistryResponse()
 
+    async def get_community(self, community_key: str, **kwargs):
+        return CommunityResponse()
+
 
 async def test_registry_fills_administrative_population_without_exposing_members() -> None:
+    """The community key is the registry key — there is no translation left.
+
+    `registry_community_key` used to carry a second name for the same REC because
+    the fixture's alias was one the realm did not have. Asserting the call is made
+    with the key it was asked about is what replaces it.
+    """
     registry = PopulationRegistry()
 
     overview = await OverviewProvider().get(
-        community_key="greenland",
-        community_name="Greenland Energy Community",
+        community_key="gr-renewable-community",
         period="7d",
         dt=PopulationDT(),
         registry=registry,
-        registry_community_key="gr-renewable-community",
     )
 
     assert registry.calls == [("gr-renewable-community", "active")]
+    assert overview.community_name == "Greenland Renewable Energy Community"
     assert overview.population.administrative_members == 44
     assert overview.population.monitored_members == 41
     assert overview.population.monitored_devices == 41

@@ -31,12 +31,12 @@ def create_app() -> FastAPI:
     logger = logging.getLogger(__name__)
     if settings.dev_auth_enabled:
         logger.warning(
-            "Development authentication is enabled for community %s",
-            settings.dev_community_key,
+            "Development authentication is enabled — every request is the %s fixture",
+            settings.dev_user_profile,
         )
     app = FastAPI(
         title="CELINE Community Manager BFF",
-        description="Single-REC backend-for-frontend for the CELINE Manager Dashboard",
+        description="Backend-for-frontend for the CELINE REC Manager Dashboard",
         version="1.0.0",
         openapi_url="/api/openapi.json",
         docs_url="/api/docs",

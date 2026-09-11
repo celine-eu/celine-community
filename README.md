@@ -69,9 +69,13 @@ task alembic:upgrade
 task run
 ```
 
-The local defaults enable a development manager identity for community `greenland`. Analytical
-data always comes from the configured Digital Twin; unavailable sources are returned as explicit
-partial data. Production startup refuses development authentication.
+The local defaults enable a development identity without a Keycloak round trip. `DEV_USER_PROFILE`
+picks which branch of the access policy it exercises: `manager` is an organization-scoped manager of
+`gr-renewable-community`, `admin` is a realm admin who belongs to no organization and sees every REC
+the registry lists. Both fixtures carry the claim shape a real token carries, so a fixture cannot
+pass where production would deny. Analytical data always comes from the configured Digital Twin;
+unavailable sources are returned as explicit partial data. Production startup refuses development
+authentication.
 
 The API listens on `http://localhost:8019`; OpenAPI is available at `/api/docs`.
 

@@ -23,7 +23,6 @@ from celine.community.api.schemas import (
     PointsLedgerEntry,
     PointsLedgerResponse,
 )
-from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
 ROME = ZoneInfo("Europe/Rome")
@@ -254,10 +253,9 @@ class NudgingProvider:
     ) -> NudgingConversionResponse:
         end = _now().date()
         start = end - timedelta(days=_days(period) - 1)
-        source_community = settings.nudging_community_key or community_key
         try:
             raw = await nudging.get_community_analytics(
-                source_community,
+                community_key,
                 start=start,
                 end=end,
             )

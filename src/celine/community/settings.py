@@ -36,8 +36,12 @@ class Settings(BaseSettings):
     dev_user_sub: str = "community-manager-dev"
     dev_user_email: str = "manager@greenland.local"
     dev_user_name: str = "REC Manager"
-    dev_community_key: str = "greenland"
-    dev_community_name: str = "Greenland Energy Community"
+    # Which branch of the policy the development fixture exercises: an
+    # organization-scoped manager of one REC, or a realm admin who belongs to no
+    # organization and sees every REC the registry lists. The REC itself is not a
+    # setting — the fixture belongs to a real Keycloak organization whose alias is
+    # the registry key, so there is nothing left to override.
+    dev_user_profile: Literal["manager", "admin"] = "manager"
 
     cors_origins: list[str] = ["http://localhost:3007", "http://community.celine.localhost"]
 
@@ -45,11 +49,9 @@ class Settings(BaseSettings):
     digital_twin_scope: str | None = "digital-twin.values.read dataset.query"
     rec_registry_url: str | None = "http://host.docker.internal:8004"
     rec_registry_scope: str | None = "rec-registry.read"
-    rec_registry_community_key: str | None = None
     flexibility_api_url: str | None = "http://host.docker.internal:8017"
     nudging_api_url: str | None = "http://host.docker.internal:8016"
     nudging_scope: str | None = "nudging.analytics.read"
-    nudging_community_key: str | None = None
     downstream_timeout_seconds: float = Field(default=12.0, gt=0, le=120)
     aggregate_cache_ttl_seconds: float = Field(default=30.0, gt=0, le=3600)
 

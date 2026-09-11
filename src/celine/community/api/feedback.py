@@ -5,9 +5,10 @@ import binascii
 
 from fastapi import APIRouter, HTTPException, Request
 
-from celine.community.api.deps import ConsoleUserDep, DbDep, resolve_user_community
+from celine.community.api.deps import ConsoleUserDep, DbDep
 from celine.community.api.schemas import FeedbackCreateRequest, FeedbackCreateResponse
 from celine.community.db.models import FeedbackEntry
+from celine.community.security.policy import policy
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
@@ -27,6 +28,13 @@ async def create_feedback(
     db: DbDep,
 ) -> FeedbackCreateResponse:
     """Persist manager feedback with the page diagnostics collected by the UI."""
+    # The REC is the caller's claim about which dashboard they were on, so it is
+    # checked rather than trusted: without this a manager of one REC could file
+    # feedback filed against another.
+    decision = await policy.allow_console(user, body.community_key)
+    if not decision.allowed:
+        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+
     screenshot_bytes: bytes | None = None
     screenshot_mime_type: str | None = None
     if body.screenshot:
@@ -37,7 +45,7 @@ async def create_feedback(
         screenshot_mime_type = body.screenshot.mime_type
 
     entry = FeedbackEntry(
-        community_key=resolve_user_community(user),
+        community_key=body.community_key,
         user_id=user.sub,
         rating=body.rating,
         comment=body.comment.strip() or None,

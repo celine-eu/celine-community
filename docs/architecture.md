@@ -3,17 +3,46 @@
 `celine-community` is the standalone BFF for `celine-frontend/apps/community`, following the
 same ownership boundary used by `celine-grid` and `celine-frontend/apps/grid`.
 
-The browser calls only this BFF. The BFF derives exactly one `community_key` from the caller's
-Keycloak organization, evaluates local OPA policies, composes aggregate REC data from Digital
-Twin fetchers, and stores only manager-owned workflow state in PostgreSQL.
+The browser calls only this BFF. The BFF evaluates local OPA policies for every
+`(caller, action, REC)` triple, composes aggregate REC data from Digital Twin fetchers, and stores
+only manager-owned workflow state in PostgreSQL.
+
+## Which REC, and who says so
+
+The token decides, and it decides per REC rather than once per session.
+
+Groups exist at two levels and the difference is the whole boundary. A **realm** group (`groups`
+claim) is a platform-wide grant: `admins` or `managers` there reaches every REC on the deployment.
+An **organization** group (`organization.<alias>.groups`) grants that REC only, and only when the
+organization is typed `rec` — a Keycloak organization is also how a DSO is modelled, and a DSO's
+managers are managers of a DSO. `security/policy.py` reads the two levels apart and passes only the
+organization matching the request; `celine.sdk.auth.jwt.extract_groups` merges them, which would let
+a `managers` badge held in REC A authorise an action on REC B.
+
+The **REC registry is the REC universe**: `GET /api/me` lists the registry's communities the caller
+holds at least one capability on, so an organization alias the registry does not know is not
+offered. The registry answers enumeration and naming only — every access decision is made from the
+token with no network call, which is why a registry outage degrades the REC list and leaves
+per-request access untouched. A caller whose grant is organization-level is then served from their
+token with the REC names derived; a caller whose grant is realm-level gets `503`, because their list
+has no other source and `403` would send them to look in the wrong place.
+
+The organization **alias** is the REC's identity throughout: it is the Keycloak alias, the REC
+registry's community key and the Digital Twin network id, one string rather than three. The
+Keycloak UUID is parsed and unused.
+
+Which REC is on screen is a path parameter, in the API and in the UI's `/[community]/...` routes.
+Nothing derives it from the session.
 
 Participant measurements and identity records are deliberately not persisted here. They remain
 owned by the Digital Twin, dataset services, and REC Registry. V1 accepts only aggregate series
 or device-level identifiers and reports missing downstream sources explicitly through `partial`
 and `missingSources` in overview responses.
 
-The development profile uses one synthetic manager and deterministic overview data. Production
-startup rejects both shortcuts and policy failures are denied by default.
+The development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an organization-scoped
+manager or a realm admin, so both policy branches are exercisable without a login — and
+deterministic overview data. Production startup rejects both shortcuts and policy failures are
+denied by default.
 
 Operational monitoring composes `rec_meters_missing_intervals`, community points, engagement, and
 pipeline-status fetchers into device and data-flow contracts. The join key is exclusively
@@ -35,4 +64,6 @@ Manager alerts, acknowledgements and dashboard feedback are the analytical-adjac
 persisted by this service. Alert reads and writes always include the JWT-derived REC boundary.
 Acknowledge, mute, assign, and anti-gaming acknowledgement append immutable audit events with the
 manager actor and technical resource reference. Feedback stores the authenticated manager and REC,
-rating, comment, browser diagnostics and an optional screenshot; the browser cannot choose the REC.
+rating, comment, browser diagnostics and an optional screenshot. The browser names the REC the
+feedback is about, because a manager may hold several; the BFF checks that claim against the policy
+rather than trusting it.

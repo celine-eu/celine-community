@@ -14,14 +14,27 @@ pnpm --dir ../celine-frontend --filter @celine-eu/community build
 For a real REC, disable development auth, configure the manager JWT, `svc-community` credentials
 and Digital Twin URL, then verify:
 
-- a manager can open only the REC resolved from their token; a different REC returns `403`;
+- an organization-scoped manager sees exactly their own RECs in `GET /api/me`, and a REC they do
+  not manage returns `403` whether or not it exists;
+- a manager holding `managers` in one REC and a lesser group in another is refused the second one —
+  the case a flattened group list used to allow;
+- a realm `admins` or `managers` badge lists every REC the registry knows, including one whose
+  Keycloak organization is missing or mistyped;
+- a member of a Keycloak organization that is not typed `rec` is refused, and so is a member of one
+  carrying no `type` at all;
+- with one REC the dashboard opens straight into it; with several the picker appears, the choice is
+  in the URL, and a reload or a shared link reopens the same REC;
+- signing in with a valid token that grants nothing lands on `/denied` rather than looping through
+  the login, and the REC registry being down reads as a temporary outage rather than a refusal;
+- a section or action the caller has no capability for is absent from the UI rather than offered
+  and then refused;
 - every percentage states its monitored denominator and partial sources remain visible;
 - CSV and XLSX downloads match the active period and contain no participant identity;
 - device, flexibility, points, nudging and alert flows remain usable at mobile and desktop widths;
 - keyboard focus is visible, skip-to-content works, drawers expose dialog semantics, and reduced
   motion is respected;
 - the feedback button is available on every authenticated manager page and successfully persists
-  rating, comment, page diagnostics and an optional screenshot under the token-derived REC;
+  rating, comment, page diagnostics and an optional screenshot under the REC the page is for;
 - timeout or missing-fetcher scenarios degrade to partial data without blocking unrelated panels;
 - alert acknowledge, mute and assign actions remain REC-scoped and appear in the audit log.
 

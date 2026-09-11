@@ -70,7 +70,58 @@ class UnavailableDT:
     communities = UnavailableCommunities()
 
 
+class _Page:
+    def __init__(self, items):
+        self.items = items
+        self.next_cursor = None
+
+
+class _Response:
+    def __init__(self, parsed):
+        self.parsed = parsed
+        self.status_code = 200
+
+
+class _Community:
+    def __init__(self, key, name):
+        self.key = key
+        self.name = name
+
+
+REGISTRY_COMMUNITIES = (
+    ("gr-renewable-community", "Greenland Renewable Energy Community"),
+    ("example_rec", "Example Renewable Energy Community"),
+)
+
+
+class PartialRegistry:
+    """Enumerates and names RECs; cannot count members.
+
+    The split is the point: the REC list and every REC's name come from the
+    registry, and a failure to count members degrades the population panel
+    without touching who may open which REC.
+    """
+
+    async def list_communities(self, **kwargs):
+        return _Response(_Page([_Community(key, name) for key, name in REGISTRY_COMMUNITIES]))
+
+    async def get_community(self, community_key, **kwargs):
+        for key, name in REGISTRY_COMMUNITIES:
+            if key == community_key:
+                return _Response(_Community(key, name))
+        raise RuntimeError(f"Unknown community in contract test: {community_key}")
+
+    async def list_members(self, *args, **kwargs):
+        raise RuntimeError("REC Registry membership unavailable in contract test")
+
+
 class UnavailableRegistry:
+    async def list_communities(self, **kwargs):
+        raise RuntimeError("REC Registry unavailable in contract test")
+
+    async def get_community(self, *args, **kwargs):
+        raise RuntimeError("REC Registry unavailable in contract test")
+
     async def list_members(self, *args, **kwargs):
         raise RuntimeError("REC Registry unavailable in contract test")
 
@@ -127,8 +178,8 @@ def alert_rows_fixture():
                 INSERT INTO manager_alerts
                     (id, community_key, source, severity, title, detail, resource_type,
                      resource_id, active)
-                VALUES (%s, 'greenland', %s, %s, %s, 'Contract-test alert', 'community',
-                        'greenland', true)
+                VALUES (%s, 'gr-renewable-community', %s, %s, %s, 'Contract-test alert', 'community',
+                        'gr-renewable-community', true)
                 """,
                 (alert_id, source, severity, f"Test {source}"),
             )
@@ -142,17 +193,14 @@ def alert_rows_fixture():
 
 @pytest.fixture(scope="module", autouse=True)
 def persistent_test_client():
-    original_nudging_community_key = settings.nudging_community_key
-    settings.nudging_community_key = "gr-renewable-community"
     app.dependency_overrides[get_dt_client] = lambda: UnavailableDT()
     app.dependency_overrides[get_nudging_client] = lambda: AvailableNudging()
-    app.dependency_overrides[get_registry_client] = lambda: UnavailableRegistry()
+    app.dependency_overrides[get_registry_client] = lambda: PartialRegistry()
     with alert_rows_fixture(), client:
         yield
     app.dependency_overrides.pop(get_dt_client, None)
     app.dependency_overrides.pop(get_nudging_client, None)
     app.dependency_overrides.pop(get_registry_client, None)
-    settings.nudging_community_key = original_nudging_community_key
 
 
 def test_health() -> None:
@@ -162,19 +210,43 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_me_exposes_single_rec_with_frontend_contract() -> None:
+def test_me_lists_only_the_recs_the_token_grants() -> None:
+    """The registry lists two RECs; the org-scoped fixture manages one of them.
+
+    `example_rec` exists, is typed `rec`, and is absent from the answer — which is
+    the whole change: the REC list is the intersection of what the registry knows
+    and what the token grants, not "the one organization the caller has".
+    """
     response = client.get("/api/me")
 
     assert response.status_code == 200
-    assert response.json()["user"] == {
+    body = response.json()
+    assert body["registryAvailable"] is True
+    assert body["user"] == {
         "sub": "community-manager-dev",
         "email": "manager@greenland.local",
         "name": "REC Manager",
         "preferredUsername": "community-manager-dev",
         "locale": "it",
-        "organization": "greenland",
-        "communityKey": "greenland",
-        "communityName": "Greenland Energy Community",
+        "organizations": ["gr-renewable-community"],
+        "realmGroups": [],
+        "communities": [
+            {
+                "key": "gr-renewable-community",
+                "name": "Greenland Renewable Energy Community",
+                "capabilities": [
+                    "alerts.read",
+                    "alerts.write",
+                    "community.read",
+                    "console.read",
+                    "devices.read",
+                    "flexibility.read",
+                    "gamification.read",
+                    "nudging.read",
+                    "objectives.write",
+                ],
+            }
+        ],
         "scopes": [
             "community.read",
             "community.devices.read",
@@ -184,6 +256,97 @@ def test_me_exposes_single_rec_with_frontend_contract() -> None:
     }
 
 
+def test_me_serves_an_org_scoped_caller_from_the_token_when_the_registry_is_down() -> None:
+    """Degraded, not denied. The grant is in the token; only the name was borrowed."""
+    app.dependency_overrides[get_registry_client] = lambda: UnavailableRegistry()
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides[get_registry_client] = lambda: PartialRegistry()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["registryAvailable"] is False
+    assert [rec["key"] for rec in body["user"]["communities"]] == ["gr-renewable-community"]
+    assert body["user"]["communities"][0]["name"] == "Gr Renewable Community"
+
+
+def test_a_realm_admin_sees_every_rec_the_registry_lists() -> None:
+    def realm_admin() -> JwtUser:
+        claims = {
+            "sub": "platform-admin",
+            "groups": ["/admins"],
+            "scope": "community.read community.devices.read community.nudging.read",
+            "organization": {},
+        }
+        return JwtUser(sub="platform-admin", organizations=[], claims=claims)
+
+    app.dependency_overrides[get_user_from_request] = realm_admin
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides.pop(get_user_from_request, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["user"]["realmGroups"] == ["admins"]
+    assert body["user"]["organizations"] == []
+    assert {rec["key"] for rec in body["user"]["communities"]} == {
+        "gr-renewable-community",
+        "example_rec",
+    }
+    # No `community.alerts.write` scope on this token, so the surface is absent
+    # even though the realm group would otherwise grant it.
+    for rec in body["user"]["communities"]:
+        assert "alerts.write" not in rec["capabilities"]
+
+
+def test_a_realm_admin_gets_503_not_403_when_the_registry_is_down() -> None:
+    """Their REC list has no other source, and a 403 would misdirect the fix."""
+
+    def realm_admin() -> JwtUser:
+        claims = {"sub": "platform-admin", "groups": ["/admins"], "scope": "community.read"}
+        return JwtUser(sub="platform-admin", organizations=[], claims=claims)
+
+    app.dependency_overrides[get_user_from_request] = realm_admin
+    app.dependency_overrides[get_registry_client] = lambda: UnavailableRegistry()
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides.pop(get_user_from_request, None)
+        app.dependency_overrides[get_registry_client] = lambda: PartialRegistry()
+
+    assert response.status_code == 503
+    assert "registry" in response.json()["detail"].lower()
+
+
+def test_a_signed_in_caller_who_manages_nothing_is_denied_not_bounced_to_login() -> None:
+    def participant() -> JwtUser:
+        claims = {
+            "sub": "gl-00001",
+            "groups": ["/participants", "/viewers"],
+            "scope": "community.read",
+            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/viewers"]}},
+        }
+        return JwtUser(
+            sub="gl-00001",
+            organizations=[
+                Organization._from_claim(
+                    "gr-renewable-community", {"type": ["rec"], "groups": ["/viewers"]}
+                )
+            ],
+            claims=claims,
+        )
+
+    app.dependency_overrides[get_user_from_request] = participant
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides.pop(get_user_from_request, None)
+
+    assert response.status_code == 403
+
+
 def test_feedback_persists_manager_context_and_screenshot() -> None:
     response = client.post(
         "/api/feedback",
@@ -191,6 +354,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         json={
             "rating": 4,
             "comment": "  Il percorso nudging ora è chiaro.  ",
+            "communityKey": "gr-renewable-community",
             "context": {
                 "page_url": "http://community.celine.localhost/nudging",
                 "page_title": "Nudging · Gestione Comunità",
@@ -226,7 +390,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
             stored = cursor.fetchone()
         assert stored is not None
         assert stored[:-1] == (
-            "greenland",
+            "gr-renewable-community",
             "community-manager-dev",
             4,
             "Il percorso nudging ora è chiaro.",
@@ -247,6 +411,7 @@ def test_feedback_rejects_invalid_screenshot_data() -> None:
         json={
             "rating": 3,
             "comment": "",
+            "communityKey": "gr-renewable-community",
             "context": {"page_url": "http://community.celine.localhost/nudging"},
             "screenshot": {"mime_type": "image/webp", "data_base64": "not-base64"},
         },
@@ -257,11 +422,13 @@ def test_feedback_rejects_invalid_screenshot_data() -> None:
 
 
 def test_overview_is_authorized_and_matches_frontend_contract() -> None:
-    response = client.get("/api/communities/greenland/overview", params={"period": "7d"})
+    response = client.get(
+        "/api/communities/gr-renewable-community/overview", params={"period": "7d"}
+    )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "greenland"
+    assert body["communityKey"] == "gr-renewable-community"
     assert body["period"] == "7d"
     assert body["partial"] is True
     assert {
@@ -282,18 +449,20 @@ def test_cross_rec_access_is_denied() -> None:
     response = client.get("/api/communities/another-rec/overview", params={"period": "7d"})
 
     assert response.status_code == 403
-    assert "does not match" in response.json()["detail"]
+    assert "not a member of this REC" in response.json()["detail"]
 
 
 def test_invalid_period_is_rejected() -> None:
-    response = client.get("/api/communities/greenland/overview", params={"period": "year"})
+    response = client.get(
+        "/api/communities/gr-renewable-community/overview", params={"period": "year"}
+    )
 
     assert response.status_code == 422
 
 
 def test_device_board_supports_filter_sort_and_pagination() -> None:
     response = client.get(
-        "/api/communities/greenland/devices",
+        "/api/communities/gr-renewable-community/devices",
         params={
             "status": "silent",
             "sort": "gap_minutes",
@@ -304,7 +473,7 @@ def test_device_board_supports_filter_sort_and_pagination() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "greenland"
+    assert body["communityKey"] == "gr-renewable-community"
     assert body["total"] == 0
     assert body["pageSize"] == 1
     assert body["summary"] == {
@@ -320,7 +489,7 @@ def test_device_board_supports_filter_sort_and_pagination() -> None:
 
 
 def test_device_detail_contains_only_technical_data_and_gaps() -> None:
-    response = client.get("/api/communities/greenland/devices/IT001E000845")
+    response = client.get("/api/communities/gr-renewable-community/devices/IT001E000845")
 
     assert response.status_code == 404
     serialized = response.text.lower()
@@ -330,26 +499,26 @@ def test_device_detail_contains_only_technical_data_and_gaps() -> None:
 
 
 def test_unknown_device_is_not_exposed() -> None:
-    response = client.get("/api/communities/greenland/devices/unknown")
+    response = client.get("/api/communities/gr-renewable-community/devices/unknown")
 
     assert response.status_code == 404
 
 
 def test_meter_gap_contract() -> None:
-    response = client.get("/api/communities/greenland/meters/IT001E000912/gaps")
+    response = client.get("/api/communities/gr-renewable-community/meters/IT001E000912/gaps")
 
     assert response.status_code == 404
 
 
 def test_data_flow_reports_coverage_and_pipeline_freshness() -> None:
     response = client.get(
-        "/api/communities/greenland/data-flow/pipelines",
+        "/api/communities/gr-renewable-community/data-flow/pipelines",
         params={"period": "7d"},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "greenland"
+    assert body["communityKey"] == "gr-renewable-community"
     assert body["partial"] is True
     assert body["coveragePercent"] == 0
     assert body["gapCount"] == 0
@@ -358,10 +527,12 @@ def test_data_flow_reports_coverage_and_pipeline_freshness() -> None:
 
 
 def test_operational_routes_enforce_rec_boundary() -> None:
-    response = client.get("/api/communities/another-rec/devices")
+    """A REC the caller is not in, and a REC that does not exist, deny alike."""
+    for community_key in ("example_rec", "another-rec"):
+        response = client.get(f"/api/communities/{community_key}/devices")
 
-    assert response.status_code == 403
-    assert "does not match" in response.json()["detail"]
+        assert response.status_code == 403, community_key
+        assert "not a member of this REC" in response.json()["detail"], community_key
 
 
 def test_device_scope_is_required_even_for_a_manager() -> None:
@@ -370,42 +541,41 @@ def test_device_scope_is_required_even_for_a_manager() -> None:
             "sub": "manager-without-scope",
             "groups": ["managers"],
             "scope": "community.read",
-            "organization": {
-                "greenland": {
-                    "attributes": {"type": ["community"]},
-                    "groups": ["managers"],
-                }
-            },
+            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/managers"]}},
         }
         return JwtUser(
             sub="manager-without-scope",
-            organizations=[Organization(alias="greenland", attributes={"type": ["community"]})],
+            organizations=[
+                Organization._from_claim(
+                    "gr-renewable-community", {"type": ["rec"], "groups": ["/managers"]}
+                )
+            ],
             claims=claims,
         )
 
     app.dependency_overrides[get_user_from_request] = manager_without_device_scope
     try:
-        response = client.get("/api/communities/greenland/devices")
+        response = client.get("/api/communities/gr-renewable-community/devices")
     finally:
         app.dependency_overrides.pop(get_user_from_request, None)
 
     assert response.status_code == 403
-    assert "community.devices.read scope required" in response.json()["detail"].lower()
+    assert "community.devices.read scope required" in response.json()["detail"]
 
 
 def test_flexibility_windows_and_uptake_contract() -> None:
     windows_response = client.get(
-        "/api/communities/greenland/flexibility/windows",
+        "/api/communities/gr-renewable-community/flexibility/windows",
         params={"period": "30d"},
     )
     uptake_response = client.get(
-        "/api/communities/greenland/flexibility/uptake",
+        "/api/communities/gr-renewable-community/flexibility/uptake",
         params={"period": "30d"},
     )
 
     assert windows_response.status_code == 200
     windows = windows_response.json()
-    assert windows["communityKey"] == "greenland"
+    assert windows["communityKey"] == "gr-renewable-community"
     assert windows["partial"] is True
     assert windows["missingSources"] == [
         "rec_flexibility_windows_history",
@@ -416,7 +586,7 @@ def test_flexibility_windows_and_uptake_contract() -> None:
     assert uptake_response.status_code == 200
     uptake = uptake_response.json()
     assert uptake == {
-        "communityKey": "greenland",
+        "communityKey": "gr-renewable-community",
         "period": "30d",
         "offeredKwh": 0.0,
         "committedKwh": 0.0,
@@ -429,7 +599,7 @@ def test_flexibility_windows_and_uptake_contract() -> None:
 
 def test_demonstration_chain_exposes_drop_off_and_effort_without_causal_claims() -> None:
     response = client.get(
-        "/api/communities/greenland/demonstration/chain",
+        "/api/communities/gr-renewable-community/demonstration/chain",
         params={"period": "30d"},
     )
 
@@ -453,7 +623,7 @@ def test_demonstration_chain_exposes_drop_off_and_effort_without_causal_claims()
 
 def test_window_drill_down_is_device_only_and_marks_partial_correlation() -> None:
     response = client.get(
-        "/api/communities/greenland/flexibility/windows/FW-2026-08-04-01",
+        "/api/communities/gr-renewable-community/flexibility/windows/FW-2026-08-04-01",
         params={"period": "30d"},
     )
 
@@ -466,8 +636,12 @@ def test_window_drill_down_is_device_only_and_marks_partial_correlation() -> Non
 
 
 def test_upcoming_window_and_unknown_window_are_explicit() -> None:
-    upcoming = client.get("/api/communities/greenland/demonstration/windows/FW-2026-08-06-01")
-    missing = client.get("/api/communities/greenland/flexibility/windows/not-in-this-rec")
+    upcoming = client.get(
+        "/api/communities/gr-renewable-community/demonstration/windows/FW-2026-08-06-01"
+    )
+    missing = client.get(
+        "/api/communities/gr-renewable-community/flexibility/windows/not-in-this-rec"
+    )
 
     assert upcoming.status_code == 404
     assert missing.status_code == 404
@@ -477,16 +651,16 @@ def test_demonstration_routes_enforce_rec_boundary() -> None:
     response = client.get("/api/communities/another-rec/demonstration/summary")
 
     assert response.status_code == 403
-    assert "does not match" in response.json()["detail"]
+    assert "not a member of this REC" in response.json()["detail"]
 
 
 def test_demonstration_reach_and_summary_support_transparent_reporting() -> None:
-    reach = client.get("/api/communities/greenland/demonstration/reach")
-    summary = client.get("/api/communities/greenland/demonstration/summary")
+    reach = client.get("/api/communities/gr-renewable-community/demonstration/reach")
+    summary = client.get("/api/communities/gr-renewable-community/demonstration/summary")
 
     assert reach.status_code == 200
     assert reach.json() == {
-        "communityKey": "greenland",
+        "communityKey": "gr-renewable-community",
         "period": "30d",
         "monitoredDevices": 0,
         "reachable": 0,
@@ -502,7 +676,7 @@ def test_demonstration_reach_and_summary_support_transparent_reporting() -> None
 
 def test_points_distribution_and_leaderboard_declare_coverage() -> None:
     response = client.get(
-        "/api/communities/greenland/points/distribution",
+        "/api/communities/gr-renewable-community/points/distribution",
         params={"period": "30d"},
     )
 
@@ -518,8 +692,12 @@ def test_points_distribution_and_leaderboard_declare_coverage() -> None:
 
 
 def test_points_ledger_explains_settlement_bonus_and_cap() -> None:
-    response = client.get("/api/communities/greenland/devices/IT001E000327/points/ledger")
-    missing = client.get("/api/communities/greenland/devices/not-in-this-rec/points/ledger")
+    response = client.get(
+        "/api/communities/gr-renewable-community/devices/IT001E000327/points/ledger"
+    )
+    missing = client.get(
+        "/api/communities/gr-renewable-community/devices/not-in-this-rec/points/ledger"
+    )
 
     assert response.status_code == 200
     assert response.json()["settlementPoints"] == 12
@@ -530,11 +708,13 @@ def test_points_ledger_explains_settlement_bonus_and_cap() -> None:
 
 
 def test_anti_gaming_flags_can_be_acknowledged_without_identity_data() -> None:
-    flags = client.get("/api/communities/greenland/points/flags")
+    flags = client.get("/api/communities/gr-renewable-community/points/flags")
     assert flags.status_code == 200
     flag = flags.json()["items"][0]
 
-    acknowledged = client.post(f"/api/communities/greenland/points/flags/{flag['id']}/ack")
+    acknowledged = client.post(
+        f"/api/communities/gr-renewable-community/points/flags/{flag['id']}/ack"
+    )
 
     assert acknowledged.status_code == 200
     assert acknowledged.json()["state"] == "acknowledged"
@@ -545,7 +725,7 @@ def test_anti_gaming_flags_can_be_acknowledged_without_identity_data() -> None:
 
 def test_nudging_surface_is_read_only_and_exposes_delivery_health() -> None:
     response = client.get(
-        "/api/communities/greenland/nudging/conversion",
+        "/api/communities/gr-renewable-community/nudging/conversion",
         params={"period": "30d"},
     )
 
@@ -583,24 +763,24 @@ def test_nudging_surface_is_read_only_and_exposes_delivery_health() -> None:
 
 
 def test_alert_inbox_supports_filters_and_audited_actions() -> None:
-    inbox = client.get("/api/communities/greenland/alerts")
+    inbox = client.get("/api/communities/gr-renewable-community/alerts")
     assert inbox.status_code == 200
     assert inbox.json()["total"] >= 3
     alerts = {item["source"]: item for item in inbox.json()["items"]}
 
     assigned = client.post(
-        f"/api/communities/greenland/alerts/{alerts['meter-health']['id']}/assign",
+        f"/api/communities/gr-renewable-community/alerts/{alerts['meter-health']['id']}/assign",
         json={"assignedTo": "community-manager-dev"},
     )
     muted = client.post(
-        f"/api/communities/greenland/alerts/{alerts['gamification']['id']}/mute",
+        f"/api/communities/gr-renewable-community/alerts/{alerts['gamification']['id']}/mute",
         json={"mutedUntil": "2099-08-06T10:00:00+02:00"},
     )
     acknowledged = client.post(
-        f"/api/communities/greenland/alerts/{alerts['flexibility']['id']}/ack"
+        f"/api/communities/gr-renewable-community/alerts/{alerts['flexibility']['id']}/ack"
     )
     filtered = client.get(
-        "/api/communities/greenland/alerts",
+        "/api/communities/gr-renewable-community/alerts",
         params={"severity": "critical", "source": "meter-health"},
     )
 
@@ -613,7 +793,7 @@ def test_alert_inbox_supports_filters_and_audited_actions() -> None:
     assert filtered.status_code == 200
     assert all(item["severity"] == "critical" for item in filtered.json()["items"])
 
-    audit = client.get("/api/communities/greenland/alerts/audit-events")
+    audit = client.get("/api/communities/gr-renewable-community/alerts/audit-events")
     assert audit.status_code == 200
     actions = {item["action"] for item in audit.json()}
     assert {
@@ -639,30 +819,29 @@ def test_alert_mutations_require_dedicated_write_scope() -> None:
             "sub": "read-only-manager",
             "groups": ["managers"],
             "scope": "community.read community.devices.read community.nudging.read",
-            "organization": {
-                "greenland": {
-                    "attributes": {"type": ["community"]},
-                    "groups": ["managers"],
-                }
-            },
+            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/managers"]}},
         }
         return JwtUser(
             sub="read-only-manager",
-            organizations=[Organization(alias="greenland", attributes={"type": ["community"]})],
+            organizations=[
+                Organization._from_claim(
+                    "gr-renewable-community", {"type": ["rec"], "groups": ["/managers"]}
+                )
+            ],
             claims=claims,
         )
 
     app.dependency_overrides[get_user_from_request] = manager_without_alert_write
     try:
         response = client.post(
-            "/api/communities/greenland/alerts/0c6025ca-8d58-4d8d-a4d5-7112dd05c1c0/assign",
+            "/api/communities/gr-renewable-community/alerts/0c6025ca-8d58-4d8d-a4d5-7112dd05c1c0/assign",
             json={"assignedTo": "read-only-manager"},
         )
     finally:
         app.dependency_overrides.pop(get_user_from_request, None)
 
     assert response.status_code == 403
-    assert "community.alerts.write scope required" in response.json()["detail"].lower()
+    assert "community.alerts.write scope required" in response.json()["detail"]
 
 
 def test_openapi_v1_contract_has_stable_unique_operations() -> None:
@@ -684,11 +863,11 @@ def test_openapi_v1_contract_has_stable_unique_operations() -> None:
 
 def test_csv_and_xlsx_exports_are_authorized_and_privacy_safe() -> None:
     csv_response = client.get(
-        "/api/communities/greenland/exports/devices",
+        "/api/communities/gr-renewable-community/exports/devices",
         params={"period": "30d", "format": "csv"},
     )
     xlsx_response = client.get(
-        "/api/communities/greenland/exports/flexibility",
+        "/api/communities/gr-renewable-community/exports/flexibility",
         params={"period": "30d", "format": "xlsx"},
     )
 
@@ -705,7 +884,7 @@ def test_csv_and_xlsx_exports_are_authorized_and_privacy_safe() -> None:
 
 def test_export_format_and_rec_boundary_are_enforced() -> None:
     invalid_format = client.get(
-        "/api/communities/greenland/exports/points", params={"format": "pdf"}
+        "/api/communities/gr-renewable-community/exports/points", params={"format": "pdf"}
     )
     wrong_rec = client.get("/api/communities/another-rec/exports/nudging")
 

@@ -35,8 +35,7 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-true}
-      REC_REGISTRY_COMMUNITY_KEY: ${REC_REGISTRY_COMMUNITY_KEY:-gr-renewable-community}
-      NUDGING_COMMUNITY_KEY: ${NUDGING_COMMUNITY_KEY:-gr-renewable-community}
+      DEV_USER_PROFILE: ${DEV_USER_PROFILE:-manager}
     ports:
       - "8019:8019"
     depends_on:

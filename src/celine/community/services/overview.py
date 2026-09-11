@@ -107,6 +107,29 @@ def _energy_points(items: list[dict[str, Any]], period: Period) -> list[EnergyPo
     return points
 
 
+def _derived_name(community_key: str) -> str:
+    return community_key.replace("-", " ").replace("_", " ").title()
+
+
+async def _community_name(registry: RecRegistryAdminClient, community_key: str) -> str:
+    """The REC's name as the registry records it.
+
+    The registry is where a REC's name lives — the alias is an identifier, not a
+    label. Falling back to a title-cased key keeps the page readable when the
+    registry is down, which is the same call that already decides whether the
+    population figures are present.
+    """
+    try:
+        response = await registry.get_community(community_key)
+        community = getattr(response, "parsed", None)
+        name = getattr(community, "name", None)
+        if isinstance(name, str) and name:
+            return name
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("REC Registry name unavailable for %s: %s", community_key, exc)
+    return _derived_name(community_key)
+
+
 async def _administrative_members(
     registry: RecRegistryAdminClient,
     community_key: str,
@@ -226,12 +249,12 @@ class OverviewProvider:
         self,
         *,
         community_key: str,
-        community_name: str,
         period: Period,
         dt: DTClient,
         registry: RecRegistryAdminClient,
-        registry_community_key: str | None = None,
+        community_name: str | None = None,
     ) -> OverviewResponse:
+        community_name = community_name or await _community_name(registry, community_key)
         start, end, previous_start, previous_end = _period_bounds(period)
         energy_fetcher = (
             "rec_self_consumption" if period == "today" else "rec_self_consumption_daily"
@@ -244,10 +267,7 @@ class OverviewProvider:
             dt, community_key, "rec_flexibility_windows_history", start, end
         )
         chain_items = await _fetch(dt, community_key, "rec_flexibility_chain_daily", start, end)
-        administrative_members = await _administrative_members(
-            registry,
-            registry_community_key or community_key,
-        )
+        administrative_members = await _administrative_members(registry, community_key)
 
         missing: list[str] = []
         if current is None:

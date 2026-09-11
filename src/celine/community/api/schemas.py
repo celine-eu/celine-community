@@ -39,20 +39,39 @@ AlertState = Literal["open", "acknowledged", "muted"]
 NudgeChannel = Literal["webpush", "email"]
 
 
+class CommunityAccess(ApiModel):
+    """One REC the caller may open, and what they may do in it."""
+
+    key: str
+    name: str
+    #: Action names from `policies/community.rego`, e.g. `alerts.write`. The UI
+    #: hides what is absent rather than letting the caller discover it as a 403.
+    capabilities: list[str]
+
+
 class MeUser(ApiModel):
     sub: str
     email: str
     name: str | None = None
     preferred_username: str | None = None
     locale: str | None = None
-    organization: str
-    community_key: str
-    community_name: str
+    #: Every Keycloak organization the caller belongs to, REC or not. Reported so
+    #: an operator can see why a REC is or is not in the list below; it is not a
+    #: grant.
+    organizations: list[str]
+    #: Realm-level groups. A caller holding `admins` or `managers` here sees every
+    #: REC the registry lists, which is a different grant from the per-REC one.
+    realm_groups: list[str]
+    communities: list[CommunityAccess]
     scopes: list[str]
 
 
 class MeResponse(ApiModel):
     user: MeUser
+    #: False when the REC registry did not answer and the list was served from the
+    #: token alone: the RECs are right, their names are derived from their keys,
+    #: and a realm admin would have got a 503 instead.
+    registry_available: bool = True
 
 
 class EnergyPoint(ApiModel):
@@ -477,6 +496,9 @@ class FeedbackContextPayload(ApiModel):
 class FeedbackCreateRequest(ApiModel):
     rating: int = Field(ge=0, le=5)
     comment: str = Field(default="", max_length=4000)
+    #: The REC the manager was looking at. Sent rather than derived: the caller
+    #: may manage several, and the feedback is about one page of one of them.
+    community_key: str = Field(min_length=1, max_length=255)
     context: FeedbackContextPayload
     screenshot: FeedbackScreenshotPayload | None = None
 
