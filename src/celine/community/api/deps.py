@@ -233,6 +233,22 @@ async def require_alerts_write(
     return user
 
 
+async def require_members_read(
+    community_key: str,
+    user: Annotated[JwtUser, Depends(get_user_from_request)],
+) -> JwtUser:
+    decision = await policy.allow_members_read(user, community_key)
+    if not decision.allowed:
+        logger.warning(
+            "Members read denied sub=%s community=%s reason=%s",
+            user.sub,
+            community_key,
+            decision.reason,
+        )
+        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+    return user
+
+
 def get_dt_client() -> DTClient:
     if not settings.digital_twin_api_url:
         raise HTTPException(status_code=503, detail="Digital Twin API not configured")
@@ -275,6 +291,7 @@ GamificationReadDep = Annotated[JwtUser, Depends(require_gamification_read)]
 NudgingReadDep = Annotated[JwtUser, Depends(require_nudging_read)]
 AlertsReadDep = Annotated[JwtUser, Depends(require_alerts_read)]
 AlertsWriteDep = Annotated[JwtUser, Depends(require_alerts_write)]
+MembersReadDep = Annotated[JwtUser, Depends(require_members_read)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 DTDep = Annotated[DTClient, Depends(get_dt_client)]
 RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]

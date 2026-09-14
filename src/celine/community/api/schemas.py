@@ -539,6 +539,31 @@ class AlertAssignRequest(ApiModel):
     assigned_to: str = Field(min_length=1, max_length=255)
 
 
+class MemberSummary(ApiModel):
+    """A registry member, as far as a manager needs to find them and press a button.
+
+    Deliberately not `user_id`, `did`, delivery points or any address: the
+    registry's list item carries the first three, and `user_id` is often the
+    member's email.
+    """
+
+    key: str
+    #: None when the registry's name only repeats the key; the dashboard then
+    #: shows the key alone, with "no name on record".
+    name: str | None = None
+    role: str
+    status: str
+    area: str
+
+
+class MembersResponse(ApiModel):
+    community_key: str
+    items: list[MemberSummary]
+    #: The registry's cursor for the next page, passed through unchanged. A `q`
+    #: filter applies to each page, so a page can be empty and still have a next.
+    next_cursor: str | None = None
+
+
 class AuditEventResponse(ApiModel):
     id: UUID
     actor_id: str

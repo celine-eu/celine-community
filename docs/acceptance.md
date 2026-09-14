@@ -30,6 +30,10 @@ and Digital Twin URL, then verify:
   and then refused;
 - every percentage states its monitored denominator and partial sources remain visible;
 - CSV and XLSX downloads match the active period and contain no participant identity;
+- the members page lists names and keys for the REC on screen only. A member whose registry name is
+  their key shows the key with "no name on record". No name is stored in the database or written to
+  the BFF log;
+- a service token holding `community.admin` is refused `GET …/members`;
 - device, flexibility, points, nudging and alert flows remain usable at mobile and desktop widths;
 - keyboard focus is visible, skip-to-content works, drawers expose dialog semantics, and reduced
   motion is respected;

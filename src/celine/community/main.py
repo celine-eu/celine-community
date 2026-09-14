@@ -18,6 +18,7 @@ TAGS = [
     {"name": "engagement", "description": "Gamification and read-only nudging."},
     {"name": "feedback", "description": "Authenticated manager feedback."},
     {"name": "alerts", "description": "Audited manager alert workflow."},
+    {"name": "members", "description": "REC members by name, read from the registry."},
     {"name": "exports", "description": "Authorized technical table exports."},
 ]
 

@@ -5,6 +5,7 @@ from celine.community.api.engagement import router as engagement_router
 from celine.community.api.exports import router as exports_router
 from celine.community.api.feedback import router as feedback_router
 from celine.community.api.flexibility import router as flexibility_router
+from celine.community.api.members import router as members_router
 from celine.community.api.objectives import router as objectives_router
 from celine.community.api.operations import router as operations_router
 from celine.community.api.overview import router as overview_router
@@ -16,6 +17,7 @@ __all__ = [
     "exports_router",
     "feedback_router",
     "flexibility_router",
+    "members_router",
     "objectives_router",
     "operations_router",
     "overview_router",

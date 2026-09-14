@@ -20,6 +20,7 @@ from celine.sdk.auth import JwtUser
 from celine.sdk.rec_registry import RecRegistryAdminClient
 
 from celine.community.security.policy import policy, rec_aliases
+from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -103,13 +104,26 @@ async def accessible_recs(
 
     accessible: list[RecAccess] = []
     for key, name in candidates.items():
-        capabilities = await policy.capabilities(user, key)
+        capabilities = offered(await policy.capabilities(user, key))
         if not capabilities:
             continue
         accessible.append(RecAccess(key=key, name=name, capabilities=tuple(sorted(capabilities))))
 
     accessible.sort(key=lambda rec: (rec.name.lower(), rec.key))
     return accessible, registry_communities is not None
+
+
+def offered(capabilities: frozenset[str]) -> frozenset[str]:
+    """The granted capabilities this deployment can honour.
+
+    `members.invite` goes through onboarding. Without `ONBOARDING_URL` every press
+    would answer `503`, so the grant is not reported and the buttons are not shown.
+    The policy still decides who may press; this decides only whether pressing can
+    work here.
+    """
+    if not settings.onboarding_url:
+        return capabilities - {"members.invite"}
+    return capabilities
 
 
 async def has_console_access(user: JwtUser) -> bool:

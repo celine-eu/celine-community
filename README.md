@@ -31,14 +31,25 @@ the Grid frontend and `celine-grid` backend form their own product surface.
 - `GET /api/communities/{community_key}/alerts`
 - `POST /api/communities/{community_key}/alerts/{alert_id}/ack|mute|assign`
 - `GET /api/communities/{community_key}/alerts/audit-events`
+- `GET /api/communities/{community_key}/members?q=&status=&cursor=&limit=`
 - `GET /api/communities/{community_key}/exports/{devices|flexibility|points|nudging|alerts}?format=csv|xlsx`
 
 Every community route asserts that the path matches the single REC resolved from the authenticated
-user's Keycloak organization. The API returns aggregates and `device_id` values only.
+user's Keycloak organization. The API returns aggregates and `device_id` values, and member names on
+the members list only.
 
 The device board supports search, status/engagement filters, sorting, and pagination. Operational
 responses expose `partial` and `missingSources` when a governed Digital Twin fetcher is not
-available; participant identity is never resolved or persisted.
+available. Participant names are resolved from the REC registry for the members page and are not
+persisted: no database row, no cache, and no name in a log line.
+
+The members list (`members.read`) returns one REC registry page of `key`, `name`, `role`, `status`
+and `area`, with the registry's cursor passed through. No address, account id, DID or delivery
+point leaves the BFF. `q` narrows by name or key inside the page, because the registry has no text
+filter. A name that only repeats the key is returned as `null`. `members.read` has no service
+scope, and the `community.admin` superset does not grant it: names are for a person's screen. Errors
+carry a machine-readable `detail.code`: `community_not_found` (`404`) or `registry_unavailable`
+(`503`).
 
 The flexibility surface composes window history with the observed pathway `offered → nudged →
 read → opened → committed → delivered → points`. It exposes drop-off, delivery against baseline,

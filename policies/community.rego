@@ -65,6 +65,8 @@ required_groups := {
 	"nudging.read": {"admins", "managers"},
 	"alerts.read": {"admins", "managers"},
 	"alerts.write": {"admins", "managers"},
+	"members.read": {"admins", "managers"},
+	"members.invite": {"admins", "managers"},
 }
 
 # A scope a human's token must carry *in addition* to the group. Orthogonal to
@@ -94,6 +96,13 @@ service_scopes := {
 	"alerts.read": "community.read",
 	"alerts.write": "community.alerts.write",
 }
+
+# Actions only a person may perform, whatever scope a service holds. They have no
+# `service_scopes` entry, and the `community.admin` superset below skips them.
+# `members.read` puts participant names on a screen, and `members.invite` sends
+# an email, which only ever follows a person's decision. A service that could do
+# either through this BFF would be a way round both.
+person_only_actions := {"members.read", "members.invite"}
 
 known_action if required_groups[input.action.name]
 
@@ -158,6 +167,7 @@ allow if {
 allow if {
 	is_service
 	has_scope("community.admin")
+	not input.action.name in person_only_actions
 }
 
 # ── reasons ──────────────────────────────────────────────────────────────────
@@ -177,6 +187,9 @@ reason := "granted by realm group" if {
 	allow
 } else := "unknown action — no capability is declared for it" if {
 	not known_action
+} else := "only a person may perform this action, never a service" if {
+	is_service
+	input.action.name in person_only_actions
 } else := "service is missing a scope granting this action" if {
 	is_service
 } else := sprintf("%s scope required", [required_scopes[input.action.name]]) if {

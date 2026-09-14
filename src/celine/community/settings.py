@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     flexibility_api_url: str | None = "http://host.docker.internal:8017"
     nudging_api_url: str | None = "http://host.docker.internal:8016"
     nudging_scope: str | None = "nudging.analytics.read"
+    # Onboarding sends a member's invitation or password reset for this BFF: it is
+    # the only service that may call the provisioning service. No default, because
+    # it is an internal address and a default hostname would be wrong on every
+    # other checkout. Unset, the send buttons are not offered.
+    onboarding_url: str | None = None
     downstream_timeout_seconds: float = Field(default=12.0, gt=0, le=120)
     aggregate_cache_ttl_seconds: float = Field(default=30.0, gt=0, le=3600)
 

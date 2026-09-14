@@ -195,3 +195,68 @@ async def test_an_action_with_no_capability_declared_is_denied() -> None:
     decision = await policy.allow(MANAGER_OF_A, "exports.purge", "rec-a")
     assert decision.allowed is False
     assert "unknown action" in (decision.reason or "")
+
+
+# ---------------------------------------------------------------------------
+# The members surface: names on a screen, and an email that follows a press
+# ---------------------------------------------------------------------------
+
+MEMBER_ACTIONS = ("members.read", "members.invite")
+
+
+@pytest.mark.parametrize("action", MEMBER_ACTIONS)
+async def test_a_manager_reaches_the_members_of_their_own_rec_only(action: str) -> None:
+    assert await allowed(MANAGER_OF_A, action, "rec-a") is True
+    assert await allowed(MANAGER_OF_A, action, "rec-b") is False
+
+
+@pytest.mark.parametrize("action", MEMBER_ACTIONS)
+async def test_a_realm_admin_reaches_the_members_of_every_rec(action: str) -> None:
+    admin = user("platform-admin", groups=["/admins"])
+    assert await allowed(admin, action, "rec-a") is True
+    assert await allowed(admin, action, "rec-b") is True
+
+
+@pytest.mark.parametrize("action", MEMBER_ACTIONS)
+async def test_a_viewer_of_the_rec_does_not_reach_its_members(action: str) -> None:
+    viewer = user("viewer", orgs={"rec-a": rec("/viewers")})
+    assert await allowed(viewer, action, "rec-a") is False
+
+
+@pytest.mark.parametrize("action", MEMBER_ACTIONS)
+async def test_being_a_manager_is_enough_with_no_surface_scope(action: str) -> None:
+    """Requester, 2026-09-14, A4: no human scope on top of the group."""
+    bare = user("bare", orgs={"rec-a": rec("/managers")}, scope="")
+    assert await allowed(bare, action, "rec-a") is True
+
+
+@pytest.mark.parametrize("action", MEMBER_ACTIONS)
+async def test_no_service_scope_reaches_the_members_not_even_community_admin(action: str) -> None:
+    """Names are for a person's screen, and an email follows a person's decision."""
+    for scope in ("community.admin", "community.read", f"community.{action}"):
+        decision = await policy.allow(service(scope), action, "rec-a")
+        assert decision.allowed is False, scope
+        assert decision.reason == "only a person may perform this action, never a service"
+    # The superset still grants everything else.
+    assert await allowed(service("community.admin"), "alerts.write", "rec-a") is True
+
+
+class _OneRecRegistry:
+    async def list_communities(self, **kwargs):
+        page = type("Page", (), {"items": [type("C", (), {"key": "rec-a", "name": "REC A"})()]})
+        return type("Response", (), {"parsed": page(), "status_code": 200})()
+
+
+async def test_me_offers_members_invite_only_when_onboarding_is_configured(monkeypatch) -> None:
+    """Without `ONBOARDING_URL` every press would be a 503, so the buttons are not offered."""
+    from celine.community.services.recs import accessible_recs
+    from celine.community.settings import settings
+
+    monkeypatch.setattr(settings, "onboarding_url", None)
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.read" in recs[0].capabilities
+    assert "members.invite" not in recs[0].capabilities
+
+    monkeypatch.setattr(settings, "onboarding_url", "http://onboarding.internal")
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.invite" in recs[0].capabilities

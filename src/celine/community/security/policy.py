@@ -41,6 +41,8 @@ CAPABILITIES: tuple[str, ...] = (
     "nudging.read",
     "alerts.read",
     "alerts.write",
+    "members.read",
+    "members.invite",
 )
 
 
@@ -200,6 +202,9 @@ class CommunityAccessPolicy:
 
     async def allow_alerts_write(self, user: JwtUser, community_key: str) -> Decision:
         return await self._evaluate(user, "alerts.write", community_key)
+
+    async def allow_members_read(self, user: JwtUser, community_key: str) -> Decision:
+        return await self._evaluate(user, "members.read", community_key)
 
 
 policy = CommunityAccessPolicy()

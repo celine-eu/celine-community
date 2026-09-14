@@ -35,9 +35,16 @@ Which REC is on screen is a path parameter, in the API and in the UI's `/[commun
 Nothing derives it from the session.
 
 Participant measurements and identity records are deliberately not persisted here. They remain
-owned by the Digital Twin, dataset services, and REC Registry. V1 accepts only aggregate series
-or device-level identifiers and reports missing downstream sources explicitly through `partial`
-and `missingSources` in overview responses.
+owned by the Digital Twin, dataset services, and REC Registry. Analytical surfaces accept only
+aggregate series or device-level identifiers, and report missing downstream sources explicitly
+through `partial` and `missingSources` in overview responses.
+
+The one exception is the members surface. Participant **names** are read through from the REC
+registry on each request, so a manager can find a person, and are not persisted, cached or logged
+([ADR-0002](decisions/ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)).
+`members.read` and `members.invite` are person-only actions. Neither has a service scope, and
+`community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
+`ONBOARDING_URL` is set.
 
 The development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an organization-scoped
 manager or a realm admin, so both policy branches are exercisable without a login — and

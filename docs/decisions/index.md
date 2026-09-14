@@ -29,3 +29,4 @@ edited to say something else.
 | ADR | Decision |
 |---|---|
 | [ADR-0001](ADR-0001-the-rec-registry-is-the-rec-universe.md) | The REC registry answers which RECs exist; the BFF has no Keycloak Admin interface |
+| [ADR-0002](ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md) | Members are listed by name from the registry, never stored; sends reach the provisioning service only through onboarding |
