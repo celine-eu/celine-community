@@ -206,5 +206,8 @@ class CommunityAccessPolicy:
     async def allow_members_read(self, user: JwtUser, community_key: str) -> Decision:
         return await self._evaluate(user, "members.read", community_key)
 
+    async def allow_members_invite(self, user: JwtUser, community_key: str) -> Decision:
+        return await self._evaluate(user, "members.invite", community_key)
+
 
 policy = CommunityAccessPolicy()

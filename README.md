@@ -32,6 +32,8 @@ the Grid frontend and `celine-grid` backend form their own product surface.
 - `POST /api/communities/{community_key}/alerts/{alert_id}/ack|mute|assign`
 - `GET /api/communities/{community_key}/alerts/audit-events`
 - `GET /api/communities/{community_key}/members?q=&status=&cursor=&limit=`
+- `POST /api/communities/{community_key}/members/{member_key}/invitation|password-reset`
+- `GET /api/communities/{community_key}/members/sends?member_key=&actor=&intent=&code=&from=&to=&cursor=`
 - `GET /api/communities/{community_key}/exports/{devices|flexibility|points|nudging|alerts}?format=csv|xlsx`
 
 Every community route asserts that the path matches the single REC resolved from the authenticated
@@ -50,6 +52,19 @@ filter. A name that only repeats the key is returned as `null`. `members.read` h
 scope, and the `community.admin` superset does not grant it: names are for a person's screen. Errors
 carry a machine-readable `detail.code`: `community_not_found` (`404`) or `registry_unavailable`
 (`503`).
+
+**Send invitation** and **Reset password** (`members.invite`, person-only like `members.read`) go
+through onboarding, which is the only caller of the provisioning service. The BFF sends its own
+`svc-community` token with the `onboarding.members.invite` scope, and forwards the manager's token as
+`X-Acting-User-Token`. Each route is one intent. A `200` is `{code, kind, lifespanSeconds}`. A refusal
+is `{"detail": {"code"}}`, plus `retryAfterSeconds` and `Retry-After` on `cooldown`. Onboarding's
+codes pass through unchanged. An onboarding `401`/`403` becomes `502 onboarding_refused`, and an
+unreachable onboarding `503 onboarding_unavailable`. Without `ONBOARDING_URL` the routes answer
+`503 onboarding_not_configured`, and `GET /api/me` does not report `members.invite`. Every press
+that reaches onboarding writes one `audit_events` row (`community.member.invitation` or
+`community.member.password_reset`, resource `registry_member`, the member key, and
+`{code, kind, lifespan_seconds, status}`). The rows are the source of `…/members/sends`, which
+resolves names at read time.
 
 The flexibility surface composes window history with the observed pathway `offered → nudged →
 read → opened → committed → delivered → points`. It exposes drop-off, delivery against baseline,

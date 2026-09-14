@@ -8,6 +8,7 @@ from celine.sdk.auth import JwtUser, OidcClientCredentialsProvider
 from celine.sdk.auth.jwt import Organization
 from celine.sdk.dt import DTClient
 from celine.sdk.nudging import NudgingAdminClient
+from celine.sdk.onboarding import OnboardingAdminClient
 from celine.sdk.rec_registry import RecRegistryAdminClient
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,6 +48,16 @@ nudging_token_provider = OidcClientCredentialsProvider(
     client_id=settings.oidc.client_id or "",
     client_secret=settings.oidc.client_secret or "",
     scope=settings.nudging_scope,
+    timeout=settings.downstream_timeout_seconds,
+    verify_ssl=settings.oidc.verify_ssl,
+)
+#: Onboarding sends member emails for this BFF. Its own provider, because the scope
+#: is its own: a token for the registry must not be able to send an invitation.
+onboarding_token_provider = OidcClientCredentialsProvider(
+    base_url=settings.oidc.base_url,
+    client_id=settings.oidc.client_id or "",
+    client_secret=settings.oidc.client_secret or "",
+    scope=settings.onboarding_scope,
     timeout=settings.downstream_timeout_seconds,
     verify_ssl=settings.oidc.verify_ssl,
 )
@@ -249,6 +260,22 @@ async def require_members_read(
     return user
 
 
+async def require_members_invite(
+    community_key: str,
+    user: Annotated[JwtUser, Depends(get_user_from_request)],
+) -> JwtUser:
+    decision = await policy.allow_members_invite(user, community_key)
+    if not decision.allowed:
+        logger.warning(
+            "Member email denied sub=%s community=%s reason=%s",
+            user.sub,
+            community_key,
+            decision.reason,
+        )
+        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+    return user
+
+
 def get_dt_client() -> DTClient:
     if not settings.digital_twin_api_url:
         raise HTTPException(status_code=503, detail="Digital Twin API not configured")
@@ -281,6 +308,17 @@ def get_nudging_client() -> NudgingAdminClient:
     )
 
 
+def get_onboarding_client() -> OnboardingAdminClient:
+    if not settings.onboarding_url:
+        raise HTTPException(status_code=503, detail={"code": "onboarding_not_configured"})
+    return OnboardingAdminClient(
+        base_url=settings.onboarding_url,
+        token_provider=onboarding_token_provider,
+        timeout=settings.downstream_timeout_seconds,
+        verify_ssl=settings.oidc.verify_ssl,
+    )
+
+
 UserDep = Annotated[JwtUser, Depends(get_user_from_request)]
 ConsoleUserDep = Annotated[JwtUser, Depends(require_console_access)]
 CommunityReadDep = Annotated[JwtUser, Depends(require_community_read)]
@@ -292,7 +330,9 @@ NudgingReadDep = Annotated[JwtUser, Depends(require_nudging_read)]
 AlertsReadDep = Annotated[JwtUser, Depends(require_alerts_read)]
 AlertsWriteDep = Annotated[JwtUser, Depends(require_alerts_write)]
 MembersReadDep = Annotated[JwtUser, Depends(require_members_read)]
+MembersInviteDep = Annotated[JwtUser, Depends(require_members_invite)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 DTDep = Annotated[DTClient, Depends(get_dt_client)]
 RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]
 NudgingDep = Annotated[NudgingAdminClient, Depends(get_nudging_client)]
+OnboardingDep = Annotated[OnboardingAdminClient, Depends(get_onboarding_client)]

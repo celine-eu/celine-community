@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/communities/{community_key}/members", tags=["mem
 MAX_PAGE = 500
 
 
-def _shown_name(key: str, name: str | None) -> str | None:
+def shown_name(key: str, name: str | None) -> str | None:
     """The registry's name, or None when it only repeats the key.
 
     Onboarding writes the submission reference as the name when a person gave
@@ -103,7 +103,7 @@ async def members(
     summaries = [
         MemberSummary(
             key=item.key,
-            name=_shown_name(item.key, item.name),
+            name=shown_name(item.key, item.name),
             role=item.role,
             status=item.status,
             area=item.area,

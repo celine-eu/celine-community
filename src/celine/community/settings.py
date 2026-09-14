@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # it is an internal address and a default hostname would be wrong on every
     # other checkout. Unset, the send buttons are not offered.
     onboarding_url: str | None = None
+    onboarding_scope: str = "onboarding.members.invite"
     downstream_timeout_seconds: float = Field(default=12.0, gt=0, le=120)
     aggregate_cache_ttl_seconds: float = Field(default=30.0, gt=0, le=3600)
 

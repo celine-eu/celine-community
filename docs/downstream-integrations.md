@@ -34,6 +34,15 @@ The members list reads REC Registry `GET /admin/communities/{community_key}/memb
 `role`, `status` and `area` enter the response; `user_id`, `did` and the delivery point count are
 dropped in the BFF. Nothing is cached, because a name must not outlive the request.
 
+Member emails go to onboarding, never to the provisioning service:
+`POST /api/admin/communities/{community}/members/{member_key}/invitation|password-reset`, through
+`celine.sdk.onboarding.OnboardingAdminClient`. The BFF's token comes from its own client-credentials
+provider with `ONBOARDING_SCOPE` (`onboarding.members.invite`, an optional scope of `svc-community`).
+The manager's token goes in `X-Acting-User-Token`, never in `x-auth-request-access-token`, which
+onboarding refuses on these routes. There is no cache and no retry: sending again is the manager's
+decision. The sends view resolves names for its page of rows from the same registry
+`list_members` call, reading at most ten pages of 500.
+
 `rec_pipeline_status`, `rec_anti_gaming_flags_community`, and the
 notification-event portion of the flexibility chain are not yet available. These gaps remain
 visible as partial data. The BFF alert workflow is real and persistent, but its production alert

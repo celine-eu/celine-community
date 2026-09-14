@@ -564,6 +564,41 @@ class MembersResponse(ApiModel):
     next_cursor: str | None = None
 
 
+class MemberEmailSent(ApiModel):
+    """A press that reached the provisioning service and was not refused.
+
+    `code` is `sent`, or `not_on_dev_list` when dev email mode held the email back.
+    `kind` says which email it was, and `lifespan_seconds` how long its link lasts,
+    so the dashboard never hard-codes "7 days".
+    """
+
+    code: str
+    kind: Literal["invitation", "password_reset"]
+    lifespan_seconds: int
+
+
+class MemberSend(ApiModel):
+    """One press, as the audit row recorded it, with the name read back at display time."""
+
+    id: UUID
+    created_at: datetime
+    member_key: str
+    #: From the REC registry at read time; None when it has no useful name or did
+    #: not answer. Never stored.
+    member_name: str | None = None
+    intent: Literal["invitation", "password_reset"]
+    code: str
+    actor_id: str
+
+
+class MemberSendsResponse(ApiModel):
+    community_key: str
+    items: list[MemberSend]
+    next_cursor: str | None = None
+    #: False when the registry did not answer: the rows are complete, the names absent.
+    names_available: bool = True
+
+
 class AuditEventResponse(ApiModel):
     id: UUID
     actor_id: str

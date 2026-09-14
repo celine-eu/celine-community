@@ -44,7 +44,9 @@ registry on each request, so a manager can find a person, and are not persisted,
 ([ADR-0002](decisions/ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)).
 `members.read` and `members.invite` are person-only actions. Neither has a service scope, and
 `community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
-`ONBOARDING_URL` is set.
+`ONBOARDING_URL` is set. A send reaches the provisioning service only through onboarding, with this
+BFF's token and the manager's forwarded token. The audit row names the member key, and the sends
+view reads those rows back with names resolved at read time.
 
 The development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an organization-scoped
 manager or a realm admin, so both policy branches are exercisable without a login — and

@@ -34,6 +34,11 @@ and Digital Twin URL, then verify:
   their key shows the key with "no name on record". No name is stored in the database or written to
   the BFF log;
 - a service token holding `community.admin` is refused `GET …/members`;
+- with `ONBOARDING_URL` set, **Send invitation** on a member without a password delivers the email
+  in the member's locale. **Reset password** on that member answers `no_password`. A second
+  invitation within the cooldown answers `cooldown` with a time to retry. The dashboard translates
+  each, and both this BFF's and onboarding's audit rows exist;
+- with `ONBOARDING_URL` unset, the send buttons are absent;
 - device, flexibility, points, nudging and alert flows remain usable at mobile and desktop widths;
 - keyboard focus is visible, skip-to-content works, drawers expose dialog semantics, and reduced
   motion is respected;
