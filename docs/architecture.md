@@ -75,4 +75,6 @@ Acknowledge, mute, assign, and anti-gaming acknowledgement append immutable audi
 manager actor and technical resource reference. Feedback stores the authenticated manager and REC,
 rating, comment, browser diagnostics and an optional screenshot. The browser names the REC the
 feedback is about, because a manager may hold several; the BFF checks that claim against the policy
-rather than trusting it.
+rather than trusting it. The manager inbox exposes only REC-scoped operational fields, serves
+screenshots through a separate authenticated route, and records monotonic seen/resolved transitions
+in the same audit log.

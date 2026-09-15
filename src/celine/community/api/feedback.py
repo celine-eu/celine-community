@@ -2,15 +2,32 @@
 
 import base64
 import binascii
+from datetime import UTC, datetime
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from sqlalchemy import func, select
 
-from celine.community.api.deps import ConsoleUserDep, DbDep
-from celine.community.api.schemas import FeedbackCreateRequest, FeedbackCreateResponse
-from celine.community.db.models import FeedbackEntry
+from celine.community.api.deps import (
+    CommunityReadDep,
+    ConsoleUserDep,
+    DbDep,
+)
+from celine.community.api.schemas import (
+    FeedbackCreateRequest,
+    FeedbackCreateResponse,
+    FeedbackItemResponse,
+    FeedbackListResponse,
+    FeedbackState,
+    FeedbackStatusCounts,
+    FeedbackStatusUpdate,
+)
+from celine.community.db.models import AuditEvent, FeedbackEntry
 from celine.community.security.policy import policy
 
-router = APIRouter(prefix="/api/feedback", tags=["feedback"])
+router = APIRouter(tags=["feedback"])
+_STATUS_ORDER = {"new": 0, "seen": 1, "resolved": 2}
+_SAFE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
 def _client_ip(request: Request) -> str | None:
@@ -20,7 +37,43 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-@router.post("", response_model=FeedbackCreateResponse, status_code=201)
+def _response(entry: FeedbackEntry) -> FeedbackItemResponse:
+    return FeedbackItemResponse(
+        id=entry.id,
+        rating=entry.rating,
+        comment=entry.comment,
+        page_url=entry.page_url,
+        page_title=entry.page_title,
+        page_path=entry.page_path,
+        locale=entry.locale,
+        timezone=entry.timezone,
+        viewport_width=entry.viewport_width,
+        viewport_height=entry.viewport_height,
+        screen_width=entry.screen_width,
+        screen_height=entry.screen_height,
+        color_scheme=entry.color_scheme,
+        client_timestamp=entry.client_timestamp,
+        extra=entry.extra_context or {},
+        has_screenshot=entry.screenshot_bytes is not None,
+        status=entry.status,
+        seen_at=entry.seen_at,
+        resolved_at=entry.resolved_at,
+        created_at=entry.created_at,
+    )
+
+
+async def _feedback(community_key: str, feedback_id: UUID, db: DbDep) -> FeedbackEntry:
+    entry = await db.scalar(
+        select(FeedbackEntry)
+        .where(FeedbackEntry.id == feedback_id)
+        .where(FeedbackEntry.community_key == community_key)
+    )
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Feedback not found in this REC")
+    return entry
+
+
+@router.post("/api/feedback", response_model=FeedbackCreateResponse, status_code=201)
 async def create_feedback(
     request: Request,
     body: FeedbackCreateRequest,
@@ -70,3 +123,110 @@ async def create_feedback(
     await db.commit()
     await db.refresh(entry)
     return FeedbackCreateResponse(id=entry.id, created_at=entry.created_at)
+
+
+@router.get(
+    "/api/communities/{community_key}/feedback",
+    response_model=FeedbackListResponse,
+)
+async def list_feedback(
+    community_key: str,
+    user: CommunityReadDep,
+    db: DbDep,
+    status: FeedbackState | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, alias="pageSize", ge=1, le=100),
+) -> FeedbackListResponse:
+    """List feedback for the caller's REC without exposing stored identity diagnostics."""
+    counts_result = await db.execute(
+        select(FeedbackEntry.status, func.count(FeedbackEntry.id))
+        .where(FeedbackEntry.community_key == community_key)
+        .group_by(FeedbackEntry.status)
+    )
+    counts = {name: count for name, count in counts_result.all()}
+
+    filtered = select(FeedbackEntry).where(FeedbackEntry.community_key == community_key)
+    total_query = select(func.count(FeedbackEntry.id)).where(
+        FeedbackEntry.community_key == community_key
+    )
+    if status:
+        filtered = filtered.where(FeedbackEntry.status == status)
+        total_query = total_query.where(FeedbackEntry.status == status)
+    total = int(await db.scalar(total_query) or 0)
+    result = await db.execute(
+        filtered.order_by(FeedbackEntry.created_at.desc(), FeedbackEntry.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return FeedbackListResponse(
+        community_key=community_key,
+        page=page,
+        page_size=page_size,
+        total=total,
+        counts=FeedbackStatusCounts(
+            new=int(counts.get("new", 0)),
+            seen=int(counts.get("seen", 0)),
+            resolved=int(counts.get("resolved", 0)),
+        ),
+        items=[_response(entry) for entry in result.scalars().all()],
+    )
+
+
+@router.get("/api/communities/{community_key}/feedback/{feedback_id}/screenshot")
+async def feedback_screenshot(
+    community_key: str,
+    feedback_id: UUID,
+    user: CommunityReadDep,
+    db: DbDep,
+) -> Response:
+    """Return an optional screenshot only after the same REC access check as the inbox."""
+    entry = await _feedback(community_key, feedback_id, db)
+    if entry.screenshot_bytes is None:
+        raise HTTPException(status_code=404, detail="Feedback screenshot not found")
+    media_type = (
+        entry.screenshot_mime_type
+        if entry.screenshot_mime_type in _SAFE_IMAGE_TYPES
+        else "application/octet-stream"
+    )
+    return Response(content=entry.screenshot_bytes, media_type=media_type)
+
+
+@router.patch(
+    "/api/communities/{community_key}/feedback/{feedback_id}",
+    response_model=FeedbackItemResponse,
+)
+async def update_feedback_status(
+    community_key: str,
+    feedback_id: UUID,
+    body: FeedbackStatusUpdate,
+    user: CommunityReadDep,
+    db: DbDep,
+) -> FeedbackItemResponse:
+    """Advance a feedback item through the manager review workflow."""
+    entry = await _feedback(community_key, feedback_id, db)
+    if _STATUS_ORDER[body.status] < _STATUS_ORDER[entry.status]:
+        raise HTTPException(status_code=409, detail="Feedback status cannot move backward")
+    if body.status == entry.status:
+        return _response(entry)
+
+    previous = entry.status
+    now = datetime.now(UTC)
+    if entry.seen_at is None:
+        entry.seen_at = now
+    if body.status == "resolved":
+        entry.resolved_at = now
+    entry.status = body.status
+    entry.status_updated_by = user.sub
+    db.add(
+        AuditEvent(
+            community_key=community_key,
+            actor_id=user.sub,
+            action=f"community.feedback.{body.status}",
+            resource_type="feedback_entry",
+            resource_id=str(entry.id),
+            detail={"from": previous, "to": body.status},
+        )
+    )
+    await db.commit()
+    await db.refresh(entry)
+    return _response(entry)

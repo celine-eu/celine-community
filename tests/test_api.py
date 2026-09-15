@@ -401,8 +401,78 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
             "image/webp",
         )
         assert bytes(stored[-1]) == b"manager screenshot"
+
+        inbox_response = client.get("/api/communities/gr-renewable-community/feedback")
+        assert inbox_response.status_code == 200
+        inbox = inbox_response.json()
+        assert inbox["counts"]["new"] >= 1
+        item = next(item for item in inbox["items"] if item["id"] == feedback_id)
+        assert item["status"] == "new"
+        assert item["rating"] == 4
+        assert item["comment"] == "Il percorso nudging ora è chiaro."
+        assert item["pagePath"] == "/nudging"
+        assert item["hasScreenshot"] is True
+        assert "userId" not in item
+        assert "clientIp" not in item
+        assert "userAgent" not in item
+
+        screenshot_response = client.get(
+            f"/api/communities/gr-renewable-community/feedback/{feedback_id}/screenshot"
+        )
+        assert screenshot_response.status_code == 200
+        assert screenshot_response.headers["content-type"] == "image/webp"
+        assert screenshot_response.content == b"manager screenshot"
+
+        seen_response = client.patch(
+            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            json={"status": "seen"},
+        )
+        assert seen_response.status_code == 200
+        assert seen_response.json()["status"] == "seen"
+        assert seen_response.json()["seenAt"] is not None
+        assert seen_response.json()["resolvedAt"] is None
+
+        resolved_response = client.patch(
+            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            json={"status": "resolved"},
+        )
+        assert resolved_response.status_code == 200
+        assert resolved_response.json()["status"] == "resolved"
+        assert resolved_response.json()["resolvedAt"] is not None
+
+        backward_response = client.patch(
+            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            json={"status": "seen"},
+        )
+        assert backward_response.status_code == 409
+
+        resolved_inbox = client.get(
+            "/api/communities/gr-renewable-community/feedback",
+            params={"status": "resolved"},
+        ).json()
+        assert any(item["id"] == feedback_id for item in resolved_inbox["items"])
+
+        database_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        with psycopg2.connect(database_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT action, actor_id
+                FROM audit_events
+                WHERE resource_type = 'feedback_entry' AND resource_id = %s
+                ORDER BY created_at
+                """,
+                (feedback_id,),
+            )
+            assert cursor.fetchall() == [
+                ("community.feedback.seen", "community-manager-dev"),
+                ("community.feedback.resolved", "community-manager-dev"),
+            ]
     finally:
         with psycopg2.connect(database_url) as connection, connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM audit_events WHERE resource_type = 'feedback_entry' AND resource_id = %s",
+                (feedback_id,),
+            )
             cursor.execute("DELETE FROM feedback_entries WHERE id = %s::uuid", (feedback_id,))
 
 
@@ -420,6 +490,13 @@ def test_feedback_rejects_invalid_screenshot_data() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid screenshot payload"
+
+
+def test_feedback_inbox_enforces_the_rec_boundary() -> None:
+    response = client.get("/api/communities/another-rec/feedback")
+
+    assert response.status_code == 403
+    assert "not a member of this REC" in response.json()["detail"]
 
 
 def test_overview_is_authorized_and_matches_frontend_contract() -> None:

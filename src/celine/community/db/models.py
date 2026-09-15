@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -123,6 +124,7 @@ class FeedbackEntry(Base):
     """Manager feedback with page diagnostics and an optional screenshot."""
 
     __tablename__ = "feedback_entries"
+    __table_args__ = (Index("ix_feedback_entries_community_status", "community_key", "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     community_key: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
@@ -147,6 +149,10 @@ class FeedbackEntry(Base):
     extra_context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     screenshot_mime_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     screenshot_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="new", server_default="new")
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status_updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

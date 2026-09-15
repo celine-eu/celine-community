@@ -37,6 +37,7 @@ Severity = Literal["low", "medium", "high", "critical"]
 FlagState = Literal["open", "acknowledged"]
 AlertState = Literal["open", "acknowledged", "muted"]
 NudgeChannel = Literal["webpush", "email"]
+FeedbackState = Literal["new", "seen", "resolved"]
 
 
 class CommunityAccess(ApiModel):
@@ -506,6 +507,48 @@ class FeedbackCreateRequest(ApiModel):
 class FeedbackCreateResponse(ApiModel):
     id: UUID
     created_at: datetime
+
+
+class FeedbackStatusCounts(ApiModel):
+    new: int = 0
+    seen: int = 0
+    resolved: int = 0
+
+
+class FeedbackItemResponse(ApiModel):
+    id: UUID
+    rating: int
+    comment: str | None = None
+    page_url: str
+    page_title: str | None = None
+    page_path: str | None = None
+    locale: str | None = None
+    timezone: str | None = None
+    viewport_width: int | None = None
+    viewport_height: int | None = None
+    screen_width: int | None = None
+    screen_height: int | None = None
+    color_scheme: Literal["light", "dark"] | None = None
+    client_timestamp: datetime | None = None
+    extra: dict = Field(default_factory=dict)
+    has_screenshot: bool = False
+    status: FeedbackState
+    seen_at: datetime | None = None
+    resolved_at: datetime | None = None
+    created_at: datetime
+
+
+class FeedbackListResponse(ApiModel):
+    community_key: str
+    page: int
+    page_size: int
+    total: int
+    counts: FeedbackStatusCounts
+    items: list[FeedbackItemResponse]
+
+
+class FeedbackStatusUpdate(ApiModel):
+    status: Literal["seen", "resolved"]
 
 
 class ManagerAlertResponse(ApiModel):
