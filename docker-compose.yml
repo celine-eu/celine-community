@@ -34,7 +34,7 @@ services:
         required: false
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-true}
+      DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-false}
       DEV_USER_PROFILE: ${DEV_USER_PROFILE:-manager}
     ports:
       - "8019:8019"

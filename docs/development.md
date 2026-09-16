@@ -14,7 +14,8 @@ For the full local container flow:
 docker compose up --build
 ```
 
-The frontend always reads this BFF. Development authentication is enabled by default, while
-analytical data always comes from the Digital Twin configured by `DIGITAL_TWIN_API_URL` using the
-`svc-community` client credentials. Set `DEV_AUTH_ENABLED=false` to validate a real manager JWT;
-development authentication cannot be enabled when `ENVIRONMENT=production`.
+The frontend always reads this BFF. Development authentication is disabled by default, so local
+browser sessions validate the real Keycloak token and its per-REC role. Analytical data comes from
+the Digital Twin configured by `DIGITAL_TWIN_API_URL` using the `svc-community` client credentials.
+Set `DEV_AUTH_ENABLED=true` only for a deliberate fixture session; development authentication
+cannot be enabled when `ENVIRONMENT=production`.

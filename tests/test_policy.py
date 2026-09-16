@@ -128,6 +128,13 @@ async def test_a_realm_group_reaches_every_rec_including_ones_it_is_not_in() -> 
     assert await allowed(admin, "community.read", "rec-z") is True
 
 
+async def test_a_realm_manager_does_not_receive_a_platform_wide_grant() -> None:
+    """REC managers must be assigned inside the REC organization they manage."""
+    manager = user("realm-manager", groups=["/managers"])
+    assert await policy.capabilities(manager, "rec-a") == frozenset()
+    assert await policy.capabilities(manager, "rec-b") == frozenset()
+
+
 async def test_a_realm_grant_answers_with_no_rec_named() -> None:
     """How "may this caller open the console at all" is asked.
 

@@ -11,13 +11,14 @@ only manager-owned workflow state in PostgreSQL.
 
 The token decides, and it decides per REC rather than once per session.
 
-Groups exist at two levels and the difference is the whole boundary. A **realm** group (`groups`
-claim) is a platform-wide grant: `admins` or `managers` there reaches every REC on the deployment.
-An **organization** group (`organization.<alias>.groups`) grants that REC only, and only when the
-organization is typed `rec` — a Keycloak organization is also how a DSO is modelled, and a DSO's
-managers are managers of a DSO. `security/policy.py` reads the two levels apart and passes only the
-organization matching the request; `celine.sdk.auth.jwt.extract_groups` merges them, which would let
-a `managers` badge held in REC A authorise an action on REC B.
+Groups exist at two levels and the difference is the whole boundary. The realm-level `/admins`
+group (`groups` claim) is the only platform-wide human grant and reaches every REC on the
+deployment. An **organization** group (`organization.<alias>.groups`) grants that REC only:
+`/admins` and `/managers` work there only when the organization is typed `rec` — a Keycloak
+organization is also how a DSO is modelled, and a DSO's managers are managers of a DSO. A
+realm-level `/managers` group grants no dashboard data. `security/policy.py` reads the two levels
+apart and passes only the organization matching the request; `celine.sdk.auth.jwt.extract_groups`
+merges them, which would let a `managers` badge held in REC A authorise an action on REC B.
 
 The **REC registry is the REC universe**: `GET /api/me` lists the registry's communities the caller
 holds at least one capability on, so an organization alias the registry does not know is not
@@ -48,10 +49,10 @@ registry on each request, so a manager can find a person, and are not persisted,
 BFF's token and the manager's forwarded token. The audit row names the member key, and the sends
 view reads those rows back with names resolved at read time.
 
-The development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an organization-scoped
-manager or a realm admin, so both policy branches are exercisable without a login — and
-deterministic overview data. Production startup rejects both shortcuts and policy failures are
-denied by default.
+The opt-in development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an
+organization-scoped manager or a realm admin, so both policy branches are exercisable without a
+login — and deterministic overview data. Normal local operation validates Keycloak. Production
+startup rejects the shortcut and policy failures are denied by default.
 
 Operational monitoring composes `rec_meters_missing_intervals`, community points, engagement, and
 pipeline-status fetchers into device and data-flow contracts. The join key is exclusively

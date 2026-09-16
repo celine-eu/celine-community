@@ -60,8 +60,8 @@ class MeUser(ApiModel):
     #: an operator can see why a REC is or is not in the list below; it is not a
     #: grant.
     organizations: list[str]
-    #: Realm-level groups. A caller holding `admins` or `managers` here sees every
-    #: REC the registry lists, which is a different grant from the per-REC one.
+    #: Realm-level groups. Only `admins` is a platform-wide dashboard grant;
+    #: `managers` must be held inside the matching REC organization.
     realm_groups: list[str]
     communities: list[CommunityAccess]
     scopes: list[str]

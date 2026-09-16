@@ -45,7 +45,7 @@ default reason := "access denied"
 
 # ── capability tables ────────────────────────────────────────────────────────
 
-# `admins` and `managers`, and no one else. The realm also has `editors`,
+# Organization `admins` and `managers`, and no one else. The realm also has `editors`,
 # `viewers` and `participants`; onboarding grants its read capabilities to all
 # four, and this dashboard deliberately does not. Every surface here is a manager
 # surface. A read-only REC member is one more row in this table when someone
@@ -55,7 +55,7 @@ default reason := "access denied"
 # /managers, /participants, /viewers. The `rec-manager`, `rec-managers`,
 # `manager` and `admin` spellings this table used to accept matched no group that
 # has ever existed in the realm.
-required_groups := {
+required_org_groups := {
 	"console.read": {"admins", "managers"},
 	"community.read": {"admins", "managers"},
 	"objectives.write": {"admins", "managers"},
@@ -67,6 +67,23 @@ required_groups := {
 	"alerts.write": {"admins", "managers"},
 	"members.read": {"admins", "managers"},
 	"members.invite": {"admins", "managers"},
+}
+
+# Realm membership is platform-wide. Only administrators receive that grant:
+# a realm `/managers` badge must never turn a REC manager into the manager of
+# every other REC in the deployment.
+required_realm_groups := {
+	"console.read": {"admins"},
+	"community.read": {"admins"},
+	"objectives.write": {"admins"},
+	"devices.read": {"admins"},
+	"flexibility.read": {"admins"},
+	"gamification.read": {"admins"},
+	"nudging.read": {"admins"},
+	"alerts.read": {"admins"},
+	"alerts.write": {"admins"},
+	"members.read": {"admins"},
+	"members.invite": {"admins"},
 }
 
 # A scope a human's token must carry *in addition* to the group. Orthogonal to
@@ -104,7 +121,7 @@ service_scopes := {
 # either through this BFF would be a way round both.
 person_only_actions := {"members.read", "members.invite"}
 
-known_action if required_groups[input.action.name]
+known_action if required_org_groups[input.action.name]
 
 # ── subject helpers ──────────────────────────────────────────────────────────
 
@@ -116,12 +133,10 @@ has_required_scope if not required_scopes[input.action.name]
 
 has_required_scope if has_scope(required_scopes[input.action.name])
 
-# A realm-level group grants the action on every REC, so no organization check.
-# This is what "an admin or manager sees every REC" means, and it is the branch
-# that cannot come from the organization claim: the token names only the
-# organizations the caller belongs to, never the deployment's full REC list.
+# The realm `/admins` group grants the action on every REC, so no organization
+# check. Managers deliberately have no realm-wide branch.
 granted_by_realm_group if {
-	some g in required_groups[input.action.name]
+	some g in required_realm_groups[input.action.name]
 	g in input.subject.groups
 }
 
@@ -137,7 +152,7 @@ granted_by_org_group if {
 	input.subject.claims.organization != null
 	input.subject.claims.organization == input.resource.attributes.community_key
 	input.subject.claims.org_type == "rec"
-	some g in required_groups[input.action.name]
+	some g in required_org_groups[input.action.name]
 	g in input.subject.claims.org_groups
 }
 

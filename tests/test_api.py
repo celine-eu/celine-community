@@ -1,6 +1,12 @@
 """Public contract tests for the first Manager Dashboard slice."""
 
+import os
 from contextlib import contextmanager
+
+# Contract tests deliberately use the deterministic manager fixture. Runtime
+# defaults remain fail-closed and exercise the real Keycloak token.
+_previous_dev_auth = os.environ.get("DEV_AUTH_ENABLED")
+os.environ["DEV_AUTH_ENABLED"] = "true"
 
 import psycopg2
 import pytest
@@ -16,6 +22,11 @@ from celine.community.api.deps import (
 )
 from celine.community.main import app
 from celine.community.settings import settings
+
+if _previous_dev_auth is None:
+    os.environ.pop("DEV_AUTH_ENABLED", None)
+else:
+    os.environ["DEV_AUTH_ENABLED"] = _previous_dev_auth
 
 client = TestClient(app)
 TEST_ALERTS = (
@@ -340,6 +351,25 @@ def test_a_signed_in_caller_who_manages_nothing_is_denied_not_bounced_to_login()
         )
 
     app.dependency_overrides[get_user_from_request] = participant
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides.pop(get_user_from_request, None)
+
+    assert response.status_code == 403
+
+
+def test_a_realm_manager_must_be_assigned_inside_a_rec_organization() -> None:
+    def realm_manager() -> JwtUser:
+        claims = {
+            "sub": "realm-manager",
+            "groups": ["/managers"],
+            "scope": "community.read community.devices.read community.nudging.read",
+            "organization": {},
+        }
+        return JwtUser(sub="realm-manager", organizations=[], claims=claims)
+
+    app.dependency_overrides[get_user_from_request] = realm_manager
     try:
         response = client.get("/api/me")
     finally:

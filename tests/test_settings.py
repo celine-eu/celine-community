@@ -6,6 +6,11 @@ from pydantic import ValidationError
 from celine.community.settings import Settings
 
 
+def test_development_authentication_is_opt_in(monkeypatch) -> None:
+    monkeypatch.delenv("DEV_AUTH_ENABLED", raising=False)
+    assert Settings(_env_file=None).dev_auth_enabled is False
+
+
 def test_production_refuses_development_authentication() -> None:
     with pytest.raises(ValidationError):
         Settings(

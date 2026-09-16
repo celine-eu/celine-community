@@ -18,8 +18,8 @@ and Digital Twin URL, then verify:
   not manage returns `403` whether or not it exists;
 - a manager holding `managers` in one REC and a lesser group in another is refused the second one —
   the case a flattened group list used to allow;
-- a realm `admins` or `managers` badge lists every REC the registry knows, including one whose
-  Keycloak organization is missing or mistyped;
+- a realm `/admins` badge lists every REC the registry knows, while a realm `/managers` badge grants
+  no REC; managers must hold `/managers` inside the matching REC organization;
 - a member of a Keycloak organization that is not typed `rec` is refused, and so is a member of one
   carrying no `type` at all;
 - with one REC the dashboard opens straight into it; with several the picker appears, the choice is

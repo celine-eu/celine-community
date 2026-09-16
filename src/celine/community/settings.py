@@ -32,7 +32,9 @@ class Settings(BaseSettings):
         client_secret=os.getenv("CELINE_OIDC_CLIENT_SECRET", "svc-community"),
     )
     jwt_header_name: str = "x-auth-request-access-token"
-    dev_auth_enabled: bool = True
+    # Opt-in only: the normal local path exercises the same signed identity and
+    # per-REC role boundary as a deployment.
+    dev_auth_enabled: bool = False
     dev_user_sub: str = "community-manager-dev"
     dev_user_email: str = "manager@greenland.local"
     dev_user_name: str = "REC Manager"
