@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     rec_registry_scope: str | None = "rec-registry.read"
     flexibility_api_url: str | None = "http://host.docker.internal:8017"
     nudging_api_url: str | None = "http://host.docker.internal:8016"
+    webapp_api_url: str | None = "http://host.docker.internal:8014"
     nudging_scope: str | None = "nudging.analytics.read"
     # Onboarding sends a member's invitation or password reset for this BFF: it is
     # the only service that may call the provisioning service. No default, because

@@ -36,6 +36,7 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-false}
       DEV_USER_PROFILE: ${DEV_USER_PROFILE:-manager}
+      WEBAPP_API_URL: ${WEBAPP_API_URL:-http://host.docker.internal:8014}
     ports:
       - "8019:8019"
     depends_on:

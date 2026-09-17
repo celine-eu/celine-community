@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from celine.community.db import get_db
 from celine.community.security.policy import policy
 from celine.community.services.recs import has_console_access
+from celine.community.services.user_feedback import UserFeedbackClient
 from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,19 @@ def extract_token(request: Request) -> str | None:
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
     return None
+
+
+def get_user_feedback_client(request: Request) -> UserFeedbackClient:
+    if not settings.webapp_api_url:
+        raise HTTPException(status_code=503, detail="Participant feedback API not configured")
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+    return UserFeedbackClient(
+        settings.webapp_api_url,
+        token,
+        timeout=settings.downstream_timeout_seconds,
+    )
 
 
 _DEV_SCOPE = "community.read community.devices.read community.nudging.read community.alerts.write"
@@ -336,3 +350,4 @@ DTDep = Annotated[DTClient, Depends(get_dt_client)]
 RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]
 NudgingDep = Annotated[NudgingAdminClient, Depends(get_nudging_client)]
 OnboardingDep = Annotated[OnboardingAdminClient, Depends(get_onboarding_client)]
+UserFeedbackDep = Annotated[UserFeedbackClient, Depends(get_user_feedback_client)]

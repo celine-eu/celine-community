@@ -18,9 +18,12 @@ from celine.community.api.deps import (
     get_dt_client,
     get_nudging_client,
     get_registry_client,
+    get_user_feedback_client,
     get_user_from_request,
 )
+from celine.community.api.schemas import FeedbackItemResponse, FeedbackListResponse
 from celine.community.main import app
+from celine.community.services.user_feedback import Screenshot, UserFeedbackError
 from celine.community.settings import settings
 
 if _previous_dev_auth is None:
@@ -376,6 +379,95 @@ def test_a_realm_manager_must_be_assigned_inside_a_rec_organization() -> None:
         app.dependency_overrides.pop(get_user_from_request, None)
 
     assert response.status_code == 403
+
+
+class _UserFeedbackUpstream:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    async def list(self, community_key, *, status, page, page_size):
+        self.calls.append(("list", community_key, status, page, page_size))
+        return FeedbackListResponse.model_validate(
+            {
+                "community_key": community_key,
+                "page": page,
+                "page_size": page_size,
+                "total": 1,
+                "counts": {"new": 1, "seen": 0, "resolved": 0},
+                "items": [
+                    {
+                        "id": "6f9e38e0-44db-40ae-bfad-40da26e52f73",
+                        "rating": 4,
+                        "comment": "Participant feedback",
+                        "page_url": "http://webapp.celine.localhost/",
+                        "extra": {},
+                        "has_screenshot": True,
+                        "status": "new",
+                        "created_at": "2026-09-16T08:00:00Z",
+                    }
+                ],
+            }
+        )
+
+    async def screenshot(self, community_key, feedback_id):
+        self.calls.append(("screenshot", community_key, str(feedback_id)))
+        return Screenshot(b"participant-screen", "image/png")
+
+    async def update_status(self, community_key, feedback_id, status):
+        self.calls.append(("update", community_key, str(feedback_id), status))
+        return FeedbackItemResponse.model_validate(
+            {
+                "id": str(feedback_id),
+                "rating": 4,
+                "comment": "Participant feedback",
+                "page_url": "http://webapp.celine.localhost/",
+                "extra": {},
+                "has_screenshot": True,
+                "status": status,
+                "created_at": "2026-09-16T08:00:00Z",
+            }
+        )
+
+
+def test_user_dashboard_feedback_is_proxied_through_the_authorized_rec() -> None:
+    upstream = _UserFeedbackUpstream()
+    app.dependency_overrides[get_user_feedback_client] = lambda: upstream
+    try:
+        listed = client.get("/api/communities/gr-renewable-community/user-feedback?pageSize=20")
+        screenshot = client.get(
+            "/api/communities/gr-renewable-community/user-feedback/"
+            "6f9e38e0-44db-40ae-bfad-40da26e52f73/screenshot"
+        )
+        updated = client.patch(
+            "/api/communities/gr-renewable-community/user-feedback/"
+            "6f9e38e0-44db-40ae-bfad-40da26e52f73",
+            json={"status": "resolved"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_user_feedback_client, None)
+
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["comment"] == "Participant feedback"
+    assert screenshot.status_code == 200
+    assert screenshot.content == b"participant-screen"
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "resolved"
+    assert [call[0] for call in upstream.calls] == ["list", "screenshot", "update"]
+
+
+def test_user_dashboard_feedback_reports_an_upstream_outage() -> None:
+    class UnavailableUserFeedback:
+        async def list(self, community_key, *, status, page, page_size):
+            raise UserFeedbackError(502, "Participant feedback service unavailable")
+
+    app.dependency_overrides[get_user_feedback_client] = lambda: UnavailableUserFeedback()
+    try:
+        response = client.get("/api/communities/gr-renewable-community/user-feedback?pageSize=20")
+    finally:
+        app.dependency_overrides.pop(get_user_feedback_client, None)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Participant feedback service unavailable"
 
 
 def test_feedback_persists_manager_context_and_screenshot() -> None:
