@@ -24,6 +24,7 @@ from celine.community.api.schemas import (
     WindowStep,
     WindowStory,
 )
+from celine.community.services.flexibility import window_id
 
 logger = logging.getLogger(__name__)
 ROME = ZoneInfo("Europe/Rome")
@@ -215,8 +216,8 @@ def _window_story(windows: list[dict[str, Any]], chain: list[dict[str, Any]]) ->
     if not windows:
         return _empty_window()
     window = windows[0]
-    window_id = str(window.get("window_id") or window.get("id") or "unavailable")
-    outcomes = [item for item in chain if str(item.get("window_id")) == window_id]
+    story_id = window_id(window, fallback="unavailable")
+    outcomes = [item for item in chain if window_id(item) == story_id]
     delivered = sum(_number(item, "delivered_kwh") for item in outcomes)
     baseline = sum(_number(item, "baseline_kwh") for item in outcomes)
     raw_start = window.get("window_start") or window.get("start")
@@ -235,7 +236,7 @@ def _window_story(windows: list[dict[str, Any]], chain: list[dict[str, Any]]) ->
         "points": sum(item.get("points") is not None for item in outcomes),
     }
     return WindowStory(
-        id=window_id,
+        id=story_id,
         start=start,
         offered_kwh=_number(window, "offered_kwh"),
         delivered_kwh=delivered,

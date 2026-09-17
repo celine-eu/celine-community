@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # per-REC role boundary as a deployment.
     dev_auth_enabled: bool = False
     dev_user_sub: str = "community-manager-dev"
-    dev_user_email: str = "manager@greenland.local"
+    dev_user_email: str = "manager@example.local"
     dev_user_name: str = "REC Manager"
     # Which branch of the policy the development fixture exercises: an
     # organization-scoped manager of one REC, or a realm admin who belongs to no

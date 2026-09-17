@@ -23,7 +23,7 @@ from celine.community.db import get_db
 from celine.community.main import app
 
 REGISTRY = "http://registry.test"
-REC = "gr-renewable-community"
+REC = "example_rec"
 MEMBERS_URL = f"{REGISTRY}/admin/communities/{REC}/members"
 
 client = TestClient(app)
@@ -46,12 +46,12 @@ def item(key: str, name: str, **overrides) -> dict:
 
 PAGE = {
     "items": [
-        item("GL-00001", "Anna Rossi"),
-        item("GL-00002", "Participant GL-00002"),
+        item("EX-00001", "Anna Rossi"),
+        item("EX-00002", "Participant EX-00002"),
         item("SUB-7F3A", " sub-7f3a "),
-        item("GL-00004", "Marco Bianchi", status="suspended", role="prosumer"),
+        item("EX-00004", "Marco Bianchi", status="suspended", role="prosumer"),
     ],
-    "next_cursor": "GL-00004",
+    "next_cursor": "EX-00004",
 }
 
 
@@ -82,7 +82,7 @@ def test_only_the_five_fields_a_manager_needs_leave_the_bff(real_registry_client
     for member in body["items"]:
         assert set(member) == {"key", "name", "role", "status", "area"}
     # Not merely absent as keys: the values appear nowhere in the payload.
-    for value in ("@example.org", "did:web", "id-GL-00001"):
+    for value in ("@example.org", "did:web", "id-EX-00001"):
         assert value not in response.text, value
 
 
@@ -93,14 +93,14 @@ def test_the_service_token_and_the_cursor_reach_the_registry_unchanged(
 
     response = client.get(
         f"/api/communities/{REC}/members",
-        params={"cursor": "GL-00000", "limit": 4, "status": "active"},
+        params={"cursor": "EX-00000", "limit": 4, "status": "active"},
     )
 
     assert response.status_code == 200
     sent = route.calls.last.request
     assert sent.headers["authorization"] == "Bearer svc-community-token"
-    assert dict(sent.url.params) == {"cursor": "GL-00000", "limit": "4", "status": "active"}
-    assert response.json()["nextCursor"] == "GL-00004"
+    assert dict(sent.url.params) == {"cursor": "EX-00000", "limit": "4", "status": "active"}
+    assert response.json()["nextCursor"] == "EX-00004"
 
 
 def test_the_last_page_has_no_cursor(real_registry_client) -> None:
@@ -114,9 +114,9 @@ def test_the_last_page_has_no_cursor(real_registry_client) -> None:
 @pytest.mark.parametrize(
     ("q", "keys"),
     [
-        ("rossi", ["GL-00001"]),
-        ("ANNA", ["GL-00001"]),
-        ("gl-0000", ["GL-00001", "GL-00002", "GL-00004"]),
+        ("rossi", ["EX-00001"]),
+        ("ANNA", ["EX-00001"]),
+        ("ex-0000", ["EX-00001", "EX-00002", "EX-00004"]),
         ("7f3a", ["SUB-7F3A"]),
         ("nobody", []),
     ],
@@ -129,7 +129,7 @@ def test_q_matches_name_or_key_within_the_page(real_registry_client, q, keys) ->
     assert [member["key"] for member in body["items"]] == keys
     # The registry has no text filter, so none is sent, and the cursor still is.
     assert "q" not in route.calls.last.request.url.params
-    assert body["nextCursor"] == "GL-00004"
+    assert body["nextCursor"] == "EX-00004"
 
 
 def test_a_name_that_only_repeats_the_key_is_no_name(real_registry_client) -> None:
@@ -140,8 +140,8 @@ def test_a_name_that_only_repeats_the_key_is_no_name(real_registry_client) -> No
 
     assert by_key["SUB-7F3A"]["name"] is None
     # A placeholder is not the key, and nothing here can tell it is not a name.
-    assert by_key["GL-00002"]["name"] == "Participant GL-00002"
-    assert by_key["GL-00001"]["name"] == "Anna Rossi"
+    assert by_key["EX-00002"]["name"] == "Participant EX-00002"
+    assert by_key["EX-00001"]["name"] == "Anna Rossi"
 
 
 @pytest.mark.parametrize(
@@ -222,11 +222,11 @@ def test_a_manager_of_another_rec_is_refused_before_the_registry_is_asked(
 ) -> None:
     route = real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
 
-    other = {"example_rec": {"type": ["rec"], "groups": ["/managers"]}}
+    other = {"other_rec": {"type": ["rec"], "groups": ["/managers"]}}
     _as(
         JwtUser(
             sub="manager-of-example",
-            organizations=[Organization._from_claim("example_rec", other["example_rec"])],
+            organizations=[Organization._from_claim("other_rec", other["other_rec"])],
             claims={"sub": "manager-of-example", "scope": "", "organization": other},
         )
     )

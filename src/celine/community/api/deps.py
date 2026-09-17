@@ -20,12 +20,12 @@ from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
 
-#: The REC the development fixtures belong to. A **real** Keycloak organization
-#: alias, which is also the REC registry's community key — the two are one string
-#: on this platform. It was `greenland`, an alias no realm has ever had, and the
-#: `REC_REGISTRY_COMMUNITY_KEY` / `NUDGING_COMMUNITY_KEY` settings existed only to
-#: translate that fiction back at each downstream boundary.
-DEV_COMMUNITY_KEY = "gr-renewable-community"
+#: The REC the development fixtures belong to: the generic sample REC, which the
+#: seeded realm and registry both carry. It must be an existing Keycloak
+#: organization alias, which is also the REC registry's community key — the two
+#: are one string on this platform. Never a real community's key: this is a
+#: public repository.
+DEV_COMMUNITY_KEY = "example_rec"
 
 dt_token_provider = OidcClientCredentialsProvider(
     base_url=settings.oidc.base_url,

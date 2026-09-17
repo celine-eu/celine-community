@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -50,6 +51,22 @@ def _number(item: dict[str, Any], *keys: str) -> float:
             except (TypeError, ValueError):
                 continue
     return 0.0
+
+
+def window_id(row: dict[str, Any], fallback: str = "unknown") -> str:
+    """The identifier that joins a window to its chain rows and names it in URLs.
+
+    Derived from the window's bounds, which both fetchers return verbatim. The
+    Digital Twin does not mint it: hashing is not on the dataset API's SQL
+    allowlist. A supplied `window_id` is still honoured.
+    """
+    supplied = row.get("window_id")
+    if supplied:
+        return str(supplied)
+    start, end = row.get("window_start"), row.get("window_end")
+    if start is None or end is None:
+        return fallback
+    return hashlib.sha256(f"{start}|{end}".encode()).hexdigest()[:16]
 
 
 def _parse_datetime(value: Any, fallback: datetime) -> datetime:
@@ -188,8 +205,8 @@ class FlexibilityProvider:
         now = _now()
         items = []
         for row in rows:
-            window_id = str(row.get("window_id") or row.get("id") or "unknown")
-            related = [item for item in chain if str(item.get("window_id")) == window_id]
+            row_id = window_id(row)
+            related = [item for item in chain if window_id(item) == row_id]
             committed = sum(_number(item, "committed_kwh") for item in related)
             delivered = sum(_number(item, "delivered_kwh", "actual_kwh") for item in related)
             start = _parse_datetime(row.get("window_start") or row.get("start"), now)
@@ -210,7 +227,7 @@ class FlexibilityProvider:
                 correlation_state = "partial"
             items.append(
                 FlexibilityWindow(
-                    id=window_id,
+                    id=row_id,
                     start=start,
                     end=end,
                     state=state,
@@ -233,17 +250,17 @@ class FlexibilityProvider:
         )
 
     async def detail(
-        self, community_key: str, window_id: str, period: Period, dt: DTClient
+        self, community_key: str, requested_id: str, period: Period, dt: DTClient
     ) -> FlexibilityWindowDetailResponse | None:
         windows = await self.windows(community_key, period, dt)
-        window = next((item for item in windows.items if item.id == window_id), None)
+        window = next((item for item in windows.items if item.id == requested_id), None)
         if window is None:
             return None
         _, chain_rows, missing = await self._source(community_key, period, dt)
         outcomes = [
             outcome
             for item in chain_rows
-            if str(item.get("window_id")) == window_id
+            if window_id(item) == requested_id
             if (outcome := _real_outcome(item)) is not None
         ]
         steps = _steps(_counts_from_outcomes(outcomes, offered=len(outcomes)))

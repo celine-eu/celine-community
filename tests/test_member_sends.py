@@ -25,7 +25,7 @@ from celine.community.main import app
 from celine.community.settings import settings
 
 REGISTRY = "http://registry.test"
-REC = "gr-renewable-community"
+REC = "example_rec"
 PREFIX = "TEST-SENDS-"
 SENDS = f"/api/communities/{REC}/members/sends"
 T0 = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
@@ -42,7 +42,7 @@ ROWS = [
     # Not a send, same member: must never appear.
     ("A", "community.alert.acknowledge", "manager-1", "sent", 5, REC),
     # A send in another REC: must never appear.
-    ("A", "community.member.invitation", "manager-1", "sent", 6, "example_rec"),
+    ("A", "community.member.invitation", "manager-1", "sent", 6, "other_rec"),
 ]
 
 
@@ -249,10 +249,10 @@ def test_the_names_are_not_written_anywhere() -> None:
 def test_the_policy_applies() -> None:
     from celine.sdk.auth.jwt import Organization
 
-    other = {"example_rec": {"type": ["rec"], "groups": ["/managers"]}}
+    other = {"other_rec": {"type": ["rec"], "groups": ["/managers"]}}
     app.dependency_overrides[get_user_from_request] = lambda: JwtUser(
         sub="manager-of-example",
-        organizations=[Organization._from_claim("example_rec", other["example_rec"])],
+        organizations=[Organization._from_claim("other_rec", other["other_rec"])],
         claims={"sub": "manager-of-example", "scope": "", "organization": other},
     )
     try:

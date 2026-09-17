@@ -32,7 +32,7 @@ def shown_name(key: str, name: str | None) -> str | None:
 
     Onboarding writes the submission reference as the name when a person gave
     none, so a name equal to the key tells the manager nothing the key column
-    does not. Placeholders from a bundle import (`Participant GL-00001`) are a
+    does not. Placeholders from a bundle import (`Participant EX-00001`) are a
     name as far as anyone here can tell, and are shown as they are.
     """
     if not name or not name.strip():

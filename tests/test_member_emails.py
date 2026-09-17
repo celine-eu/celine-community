@@ -23,8 +23,8 @@ from celine.community.settings import settings
 
 ONBOARDING = "http://onboarding.test"
 TOKEN_URL = "http://keycloak.test/token"
-REC = "gr-renewable-community"
-MEMBER = "GL-00001"
+REC = "example_rec"
+MEMBER = "EX-00001"
 MANAGER_TOKEN = "tok-manager"
 SENT = {"code": "sent", "kind": "invitation", "lifespanSeconds": 604800}
 
@@ -292,10 +292,10 @@ def test_a_policy_denial_makes_no_onboarding_call_and_no_row(downstream, session
     from celine.sdk.auth.jwt import Organization
 
     route = answer(downstream, "invitation", httpx.Response(200, json=SENT))
-    other = {"example_rec": {"type": ["rec"], "groups": ["/managers"]}}
+    other = {"other_rec": {"type": ["rec"], "groups": ["/managers"]}}
     app.dependency_overrides[get_user_from_request] = lambda: JwtUser(
         sub="manager-of-example",
-        organizations=[Organization._from_claim("example_rec", other["example_rec"])],
+        organizations=[Organization._from_claim("other_rec", other["other_rec"])],
         claims={"sub": "manager-of-example", "scope": "", "organization": other},
     )
     try:

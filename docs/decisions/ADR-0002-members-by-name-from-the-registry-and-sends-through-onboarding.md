@@ -55,7 +55,7 @@ stands).
   text filter, so `q` narrows each page inside the BFF, and the dashboard says so. A
   community large enough for that to hurt needs a registry-side filter, not a cache here.
   A cache would be a stored copy of names.
-- **A placeholder name is shown as it is.** `Participant GL-00001` from an import is not
+- **A placeholder name is shown as it is.** `Participant EX-00001` from an import is not
   the key, and nothing here can tell it is not a name.
 - **Onboarding becomes a runtime dependency** of the send buttons, and one more hop that can
   fail. Without `ONBOARDING_URL`, `GET /api/me` does not report `members.invite`, so the

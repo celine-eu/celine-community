@@ -100,8 +100,8 @@ class _Community:
 
 
 REGISTRY_COMMUNITIES = (
-    ("gr-renewable-community", "Greenland Renewable Energy Community"),
     ("example_rec", "Example Renewable Energy Community"),
+    ("other_rec", "Other Renewable Energy Community"),
 )
 
 
@@ -139,7 +139,7 @@ class UnavailableRegistry:
 
 class AvailableNudging:
     async def get_community_analytics(self, community_id: str, **kwargs):
-        assert community_id == "gr-renewable-community"
+        assert community_id == "example_rec"
         return {
             "community_id": community_id,
             "steps": [
@@ -189,8 +189,8 @@ def alert_rows_fixture():
                 INSERT INTO manager_alerts
                     (id, community_key, source, severity, title, detail, resource_type,
                      resource_id, active)
-                VALUES (%s, 'gr-renewable-community', %s, %s, %s, 'Contract-test alert', 'community',
-                        'gr-renewable-community', true)
+                VALUES (%s, 'example_rec', %s, %s, %s, 'Contract-test alert', 'community',
+                        'example_rec', true)
                 """,
                 (alert_id, source, severity, f"Test {source}"),
             )
@@ -224,7 +224,7 @@ def test_health() -> None:
 def test_me_lists_only_the_recs_the_token_grants() -> None:
     """The registry lists two RECs; the org-scoped fixture manages one of them.
 
-    `example_rec` exists, is typed `rec`, and is absent from the answer — which is
+    `other_rec` exists, is typed `rec`, and is absent from the answer — which is
     the whole change: the REC list is the intersection of what the registry knows
     and what the token grants, not "the one organization the caller has".
     """
@@ -235,16 +235,16 @@ def test_me_lists_only_the_recs_the_token_grants() -> None:
     assert body["registryAvailable"] is True
     assert body["user"] == {
         "sub": "community-manager-dev",
-        "email": "manager@greenland.local",
+        "email": "manager@example.local",
         "name": "REC Manager",
         "preferredUsername": "community-manager-dev",
         "locale": "it",
-        "organizations": ["gr-renewable-community"],
+        "organizations": ["example_rec"],
         "realmGroups": [],
         "communities": [
             {
-                "key": "gr-renewable-community",
-                "name": "Greenland Renewable Energy Community",
+                "key": "example_rec",
+                "name": "Example Renewable Energy Community",
                 "capabilities": [
                     "alerts.read",
                     "alerts.write",
@@ -279,8 +279,8 @@ def test_me_serves_an_org_scoped_caller_from_the_token_when_the_registry_is_down
     assert response.status_code == 200
     body = response.json()
     assert body["registryAvailable"] is False
-    assert [rec["key"] for rec in body["user"]["communities"]] == ["gr-renewable-community"]
-    assert body["user"]["communities"][0]["name"] == "Gr Renewable Community"
+    assert [rec["key"] for rec in body["user"]["communities"]] == ["example_rec"]
+    assert body["user"]["communities"][0]["name"] == "Example Rec"
 
 
 def test_a_realm_admin_sees_every_rec_the_registry_lists() -> None:
@@ -304,8 +304,8 @@ def test_a_realm_admin_sees_every_rec_the_registry_lists() -> None:
     assert body["user"]["realmGroups"] == ["admins"]
     assert body["user"]["organizations"] == []
     assert {rec["key"] for rec in body["user"]["communities"]} == {
-        "gr-renewable-community",
         "example_rec",
+        "other_rec",
     }
     # No `community.alerts.write` scope on this token, so the surface is absent
     # even though the realm group would otherwise grant it.
@@ -335,16 +335,16 @@ def test_a_realm_admin_gets_503_not_403_when_the_registry_is_down() -> None:
 def test_a_signed_in_caller_who_manages_nothing_is_denied_not_bounced_to_login() -> None:
     def participant() -> JwtUser:
         claims = {
-            "sub": "gl-00001",
+            "sub": "ex-00001",
             "groups": ["/participants", "/viewers"],
             "scope": "community.read",
-            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/viewers"]}},
+            "organization": {"example_rec": {"type": ["rec"], "groups": ["/viewers"]}},
         }
         return JwtUser(
-            sub="gl-00001",
+            sub="ex-00001",
             organizations=[
                 Organization._from_claim(
-                    "gr-renewable-community", {"type": ["rec"], "groups": ["/viewers"]}
+                    "example_rec", {"type": ["rec"], "groups": ["/viewers"]}
                 )
             ],
             claims=claims,
@@ -385,7 +385,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         json={
             "rating": 4,
             "comment": "  Il percorso nudging ora è chiaro.  ",
-            "communityKey": "gr-renewable-community",
+            "communityKey": "example_rec",
             "context": {
                 "page_url": "http://community.celine.localhost/nudging",
                 "page_title": "Nudging · Gestione Comunità",
@@ -421,7 +421,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
             stored = cursor.fetchone()
         assert stored is not None
         assert stored[:-1] == (
-            "gr-renewable-community",
+            "example_rec",
             "community-manager-dev",
             4,
             "Il percorso nudging ora è chiaro.",
@@ -432,7 +432,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         )
         assert bytes(stored[-1]) == b"manager screenshot"
 
-        inbox_response = client.get("/api/communities/gr-renewable-community/feedback")
+        inbox_response = client.get("/api/communities/example_rec/feedback")
         assert inbox_response.status_code == 200
         inbox = inbox_response.json()
         assert inbox["counts"]["new"] >= 1
@@ -447,14 +447,14 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         assert "userAgent" not in item
 
         screenshot_response = client.get(
-            f"/api/communities/gr-renewable-community/feedback/{feedback_id}/screenshot"
+            f"/api/communities/example_rec/feedback/{feedback_id}/screenshot"
         )
         assert screenshot_response.status_code == 200
         assert screenshot_response.headers["content-type"] == "image/webp"
         assert screenshot_response.content == b"manager screenshot"
 
         seen_response = client.patch(
-            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            f"/api/communities/example_rec/feedback/{feedback_id}",
             json={"status": "seen"},
         )
         assert seen_response.status_code == 200
@@ -463,7 +463,7 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         assert seen_response.json()["resolvedAt"] is None
 
         resolved_response = client.patch(
-            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            f"/api/communities/example_rec/feedback/{feedback_id}",
             json={"status": "resolved"},
         )
         assert resolved_response.status_code == 200
@@ -471,13 +471,13 @@ def test_feedback_persists_manager_context_and_screenshot() -> None:
         assert resolved_response.json()["resolvedAt"] is not None
 
         backward_response = client.patch(
-            f"/api/communities/gr-renewable-community/feedback/{feedback_id}",
+            f"/api/communities/example_rec/feedback/{feedback_id}",
             json={"status": "seen"},
         )
         assert backward_response.status_code == 409
 
         resolved_inbox = client.get(
-            "/api/communities/gr-renewable-community/feedback",
+            "/api/communities/example_rec/feedback",
             params={"status": "resolved"},
         ).json()
         assert any(item["id"] == feedback_id for item in resolved_inbox["items"])
@@ -512,7 +512,7 @@ def test_feedback_rejects_invalid_screenshot_data() -> None:
         json={
             "rating": 3,
             "comment": "",
-            "communityKey": "gr-renewable-community",
+            "communityKey": "example_rec",
             "context": {"page_url": "http://community.celine.localhost/nudging"},
             "screenshot": {"mime_type": "image/webp", "data_base64": "not-base64"},
         },
@@ -531,12 +531,12 @@ def test_feedback_inbox_enforces_the_rec_boundary() -> None:
 
 def test_overview_is_authorized_and_matches_frontend_contract() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/overview", params={"period": "7d"}
+        "/api/communities/example_rec/overview", params={"period": "7d"}
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "gr-renewable-community"
+    assert body["communityKey"] == "example_rec"
     assert body["period"] == "7d"
     assert body["partial"] is True
     assert {
@@ -562,7 +562,7 @@ def test_cross_rec_access_is_denied() -> None:
 
 def test_invalid_period_is_rejected() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/overview", params={"period": "year"}
+        "/api/communities/example_rec/overview", params={"period": "year"}
     )
 
     assert response.status_code == 422
@@ -570,7 +570,7 @@ def test_invalid_period_is_rejected() -> None:
 
 def test_device_board_supports_filter_sort_and_pagination() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/devices",
+        "/api/communities/example_rec/devices",
         params={
             "status": "silent",
             "sort": "gap_minutes",
@@ -581,7 +581,7 @@ def test_device_board_supports_filter_sort_and_pagination() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "gr-renewable-community"
+    assert body["communityKey"] == "example_rec"
     assert body["total"] == 0
     assert body["pageSize"] == 1
     assert body["summary"] == {
@@ -597,7 +597,7 @@ def test_device_board_supports_filter_sort_and_pagination() -> None:
 
 
 def test_device_detail_contains_only_technical_data_and_gaps() -> None:
-    response = client.get("/api/communities/gr-renewable-community/devices/IT001E000845")
+    response = client.get("/api/communities/example_rec/devices/IT001E000845")
 
     assert response.status_code == 404
     serialized = response.text.lower()
@@ -607,26 +607,26 @@ def test_device_detail_contains_only_technical_data_and_gaps() -> None:
 
 
 def test_unknown_device_is_not_exposed() -> None:
-    response = client.get("/api/communities/gr-renewable-community/devices/unknown")
+    response = client.get("/api/communities/example_rec/devices/unknown")
 
     assert response.status_code == 404
 
 
 def test_meter_gap_contract() -> None:
-    response = client.get("/api/communities/gr-renewable-community/meters/IT001E000912/gaps")
+    response = client.get("/api/communities/example_rec/meters/IT001E000912/gaps")
 
     assert response.status_code == 404
 
 
 def test_data_flow_reports_coverage_and_pipeline_freshness() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/data-flow/pipelines",
+        "/api/communities/example_rec/data-flow/pipelines",
         params={"period": "7d"},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["communityKey"] == "gr-renewable-community"
+    assert body["communityKey"] == "example_rec"
     assert body["partial"] is True
     assert body["coveragePercent"] == 0
     assert body["gapCount"] == 0
@@ -636,7 +636,7 @@ def test_data_flow_reports_coverage_and_pipeline_freshness() -> None:
 
 def test_operational_routes_enforce_rec_boundary() -> None:
     """A REC the caller is not in, and a REC that does not exist, deny alike."""
-    for community_key in ("example_rec", "another-rec"):
+    for community_key in ("other_rec", "another-rec"):
         response = client.get(f"/api/communities/{community_key}/devices")
 
         assert response.status_code == 403, community_key
@@ -649,13 +649,13 @@ def test_device_scope_is_required_even_for_a_manager() -> None:
             "sub": "manager-without-scope",
             "groups": ["managers"],
             "scope": "community.read",
-            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/managers"]}},
+            "organization": {"example_rec": {"type": ["rec"], "groups": ["/managers"]}},
         }
         return JwtUser(
             sub="manager-without-scope",
             organizations=[
                 Organization._from_claim(
-                    "gr-renewable-community", {"type": ["rec"], "groups": ["/managers"]}
+                    "example_rec", {"type": ["rec"], "groups": ["/managers"]}
                 )
             ],
             claims=claims,
@@ -663,7 +663,7 @@ def test_device_scope_is_required_even_for_a_manager() -> None:
 
     app.dependency_overrides[get_user_from_request] = manager_without_device_scope
     try:
-        response = client.get("/api/communities/gr-renewable-community/devices")
+        response = client.get("/api/communities/example_rec/devices")
     finally:
         app.dependency_overrides.pop(get_user_from_request, None)
 
@@ -673,17 +673,17 @@ def test_device_scope_is_required_even_for_a_manager() -> None:
 
 def test_flexibility_windows_and_uptake_contract() -> None:
     windows_response = client.get(
-        "/api/communities/gr-renewable-community/flexibility/windows",
+        "/api/communities/example_rec/flexibility/windows",
         params={"period": "30d"},
     )
     uptake_response = client.get(
-        "/api/communities/gr-renewable-community/flexibility/uptake",
+        "/api/communities/example_rec/flexibility/uptake",
         params={"period": "30d"},
     )
 
     assert windows_response.status_code == 200
     windows = windows_response.json()
-    assert windows["communityKey"] == "gr-renewable-community"
+    assert windows["communityKey"] == "example_rec"
     assert windows["partial"] is True
     assert windows["missingSources"] == [
         "rec_flexibility_windows_history",
@@ -694,7 +694,7 @@ def test_flexibility_windows_and_uptake_contract() -> None:
     assert uptake_response.status_code == 200
     uptake = uptake_response.json()
     assert uptake == {
-        "communityKey": "gr-renewable-community",
+        "communityKey": "example_rec",
         "period": "30d",
         "offeredKwh": 0.0,
         "committedKwh": 0.0,
@@ -707,7 +707,7 @@ def test_flexibility_windows_and_uptake_contract() -> None:
 
 def test_demonstration_chain_exposes_drop_off_and_effort_without_causal_claims() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/demonstration/chain",
+        "/api/communities/example_rec/demonstration/chain",
         params={"period": "30d"},
     )
 
@@ -731,7 +731,7 @@ def test_demonstration_chain_exposes_drop_off_and_effort_without_causal_claims()
 
 def test_window_drill_down_is_device_only_and_marks_partial_correlation() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/flexibility/windows/FW-2026-08-04-01",
+        "/api/communities/example_rec/flexibility/windows/FW-2026-08-04-01",
         params={"period": "30d"},
     )
 
@@ -745,10 +745,10 @@ def test_window_drill_down_is_device_only_and_marks_partial_correlation() -> Non
 
 def test_upcoming_window_and_unknown_window_are_explicit() -> None:
     upcoming = client.get(
-        "/api/communities/gr-renewable-community/demonstration/windows/FW-2026-08-06-01"
+        "/api/communities/example_rec/demonstration/windows/FW-2026-08-06-01"
     )
     missing = client.get(
-        "/api/communities/gr-renewable-community/flexibility/windows/not-in-this-rec"
+        "/api/communities/example_rec/flexibility/windows/not-in-this-rec"
     )
 
     assert upcoming.status_code == 404
@@ -763,12 +763,12 @@ def test_demonstration_routes_enforce_rec_boundary() -> None:
 
 
 def test_demonstration_reach_and_summary_support_transparent_reporting() -> None:
-    reach = client.get("/api/communities/gr-renewable-community/demonstration/reach")
-    summary = client.get("/api/communities/gr-renewable-community/demonstration/summary")
+    reach = client.get("/api/communities/example_rec/demonstration/reach")
+    summary = client.get("/api/communities/example_rec/demonstration/summary")
 
     assert reach.status_code == 200
     assert reach.json() == {
-        "communityKey": "gr-renewable-community",
+        "communityKey": "example_rec",
         "period": "30d",
         "monitoredDevices": 0,
         "reachable": 0,
@@ -784,7 +784,7 @@ def test_demonstration_reach_and_summary_support_transparent_reporting() -> None
 
 def test_points_distribution_and_leaderboard_declare_coverage() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/points/distribution",
+        "/api/communities/example_rec/points/distribution",
         params={"period": "30d"},
     )
 
@@ -801,10 +801,10 @@ def test_points_distribution_and_leaderboard_declare_coverage() -> None:
 
 def test_points_ledger_explains_settlement_bonus_and_cap() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/devices/IT001E000327/points/ledger"
+        "/api/communities/example_rec/devices/IT001E000327/points/ledger"
     )
     missing = client.get(
-        "/api/communities/gr-renewable-community/devices/not-in-this-rec/points/ledger"
+        "/api/communities/example_rec/devices/not-in-this-rec/points/ledger"
     )
 
     assert response.status_code == 200
@@ -816,12 +816,12 @@ def test_points_ledger_explains_settlement_bonus_and_cap() -> None:
 
 
 def test_anti_gaming_flags_can_be_acknowledged_without_identity_data() -> None:
-    flags = client.get("/api/communities/gr-renewable-community/points/flags")
+    flags = client.get("/api/communities/example_rec/points/flags")
     assert flags.status_code == 200
     flag = flags.json()["items"][0]
 
     acknowledged = client.post(
-        f"/api/communities/gr-renewable-community/points/flags/{flag['id']}/ack"
+        f"/api/communities/example_rec/points/flags/{flag['id']}/ack"
     )
 
     assert acknowledged.status_code == 200
@@ -833,7 +833,7 @@ def test_anti_gaming_flags_can_be_acknowledged_without_identity_data() -> None:
 
 def test_nudging_surface_is_read_only_and_exposes_delivery_health() -> None:
     response = client.get(
-        "/api/communities/gr-renewable-community/nudging/conversion",
+        "/api/communities/example_rec/nudging/conversion",
         params={"period": "30d"},
     )
 
@@ -871,24 +871,24 @@ def test_nudging_surface_is_read_only_and_exposes_delivery_health() -> None:
 
 
 def test_alert_inbox_supports_filters_and_audited_actions() -> None:
-    inbox = client.get("/api/communities/gr-renewable-community/alerts")
+    inbox = client.get("/api/communities/example_rec/alerts")
     assert inbox.status_code == 200
     assert inbox.json()["total"] >= 3
     alerts = {item["source"]: item for item in inbox.json()["items"]}
 
     assigned = client.post(
-        f"/api/communities/gr-renewable-community/alerts/{alerts['meter-health']['id']}/assign",
+        f"/api/communities/example_rec/alerts/{alerts['meter-health']['id']}/assign",
         json={"assignedTo": "community-manager-dev"},
     )
     muted = client.post(
-        f"/api/communities/gr-renewable-community/alerts/{alerts['gamification']['id']}/mute",
+        f"/api/communities/example_rec/alerts/{alerts['gamification']['id']}/mute",
         json={"mutedUntil": "2099-08-06T10:00:00+02:00"},
     )
     acknowledged = client.post(
-        f"/api/communities/gr-renewable-community/alerts/{alerts['flexibility']['id']}/ack"
+        f"/api/communities/example_rec/alerts/{alerts['flexibility']['id']}/ack"
     )
     filtered = client.get(
-        "/api/communities/gr-renewable-community/alerts",
+        "/api/communities/example_rec/alerts",
         params={"severity": "critical", "source": "meter-health"},
     )
 
@@ -901,7 +901,7 @@ def test_alert_inbox_supports_filters_and_audited_actions() -> None:
     assert filtered.status_code == 200
     assert all(item["severity"] == "critical" for item in filtered.json()["items"])
 
-    audit = client.get("/api/communities/gr-renewable-community/alerts/audit-events")
+    audit = client.get("/api/communities/example_rec/alerts/audit-events")
     assert audit.status_code == 200
     actions = {item["action"] for item in audit.json()}
     assert {
@@ -927,13 +927,13 @@ def test_alert_mutations_require_dedicated_write_scope() -> None:
             "sub": "read-only-manager",
             "groups": ["managers"],
             "scope": "community.read community.devices.read community.nudging.read",
-            "organization": {"gr-renewable-community": {"type": ["rec"], "groups": ["/managers"]}},
+            "organization": {"example_rec": {"type": ["rec"], "groups": ["/managers"]}},
         }
         return JwtUser(
             sub="read-only-manager",
             organizations=[
                 Organization._from_claim(
-                    "gr-renewable-community", {"type": ["rec"], "groups": ["/managers"]}
+                    "example_rec", {"type": ["rec"], "groups": ["/managers"]}
                 )
             ],
             claims=claims,
@@ -942,7 +942,7 @@ def test_alert_mutations_require_dedicated_write_scope() -> None:
     app.dependency_overrides[get_user_from_request] = manager_without_alert_write
     try:
         response = client.post(
-            "/api/communities/gr-renewable-community/alerts/0c6025ca-8d58-4d8d-a4d5-7112dd05c1c0/assign",
+            "/api/communities/example_rec/alerts/0c6025ca-8d58-4d8d-a4d5-7112dd05c1c0/assign",
             json={"assignedTo": "read-only-manager"},
         )
     finally:
@@ -971,11 +971,11 @@ def test_openapi_v1_contract_has_stable_unique_operations() -> None:
 
 def test_csv_and_xlsx_exports_are_authorized_and_privacy_safe() -> None:
     csv_response = client.get(
-        "/api/communities/gr-renewable-community/exports/devices",
+        "/api/communities/example_rec/exports/devices",
         params={"period": "30d", "format": "csv"},
     )
     xlsx_response = client.get(
-        "/api/communities/gr-renewable-community/exports/flexibility",
+        "/api/communities/example_rec/exports/flexibility",
         params={"period": "30d", "format": "xlsx"},
     )
 
@@ -992,7 +992,7 @@ def test_csv_and_xlsx_exports_are_authorized_and_privacy_safe() -> None:
 
 def test_export_format_and_rec_boundary_are_enforced() -> None:
     invalid_format = client.get(
-        "/api/communities/gr-renewable-community/exports/points", params={"format": "pdf"}
+        "/api/communities/example_rec/exports/points", params={"format": "pdf"}
     )
     wrong_rec = client.get("/api/communities/another-rec/exports/nudging")
 

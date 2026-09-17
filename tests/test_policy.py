@@ -85,8 +85,8 @@ async def test_an_unknown_rec_denies_exactly_as_a_forbidden_one_does() -> None:
 
 async def test_only_a_rec_typed_organization_grants() -> None:
     """A DSO's managers are managers of a DSO."""
-    dso_manager = user("dso-manager", orgs={"set": {"type": ["dso"], "groups": ["/managers"]}})
-    assert await allowed(dso_manager, "community.read", "set") is False
+    dso_manager = user("dso-manager", orgs={"example-dso": {"type": ["dso"], "groups": ["/managers"]}})
+    assert await allowed(dso_manager, "community.read", "example-dso") is False
     assert rec_aliases(dso_manager) == []
 
 

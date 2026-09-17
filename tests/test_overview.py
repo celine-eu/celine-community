@@ -28,8 +28,8 @@ class RegistryResponse:
 
 
 class Community:
-    key = "gr-renewable-community"
-    name = "Greenland Renewable Energy Community"
+    key = "example_rec"
+    name = "Example Renewable Energy Community"
 
 
 class CommunityResponse:
@@ -65,14 +65,14 @@ async def test_registry_fills_administrative_population_without_exposing_members
     registry = PopulationRegistry()
 
     overview = await OverviewProvider().get(
-        community_key="gr-renewable-community",
+        community_key="example_rec",
         period="7d",
         dt=PopulationDT(),
         registry=registry,
     )
 
-    assert registry.calls == [("gr-renewable-community", "active")]
-    assert overview.community_name == "Greenland Renewable Energy Community"
+    assert registry.calls == [("example_rec", "active")]
+    assert overview.community_name == "Example Renewable Energy Community"
     assert overview.population.administrative_members == 44
     assert overview.population.monitored_members == 41
     assert overview.population.monitored_devices == 41
