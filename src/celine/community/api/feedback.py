@@ -12,6 +12,7 @@ from celine.community.api.deps import (
     CommunityReadDep,
     ConsoleUserDep,
     DbDep,
+    UserFeedbackDep,
 )
 from celine.community.api.schemas import (
     FeedbackCreateRequest,
@@ -24,6 +25,7 @@ from celine.community.api.schemas import (
 )
 from celine.community.db.models import AuditEvent, FeedbackEntry
 from celine.community.security.policy import policy
+from celine.community.services.user_feedback import UserFeedbackError
 
 router = APIRouter(tags=["feedback"])
 _STATUS_ORDER = {"new": 0, "seen": 1, "resolved": 2}
@@ -230,3 +232,63 @@ async def update_feedback_status(
     await db.commit()
     await db.refresh(entry)
     return _response(entry)
+
+
+def _upstream_error(exc: UserFeedbackError) -> HTTPException:
+    status = exc.status_code if exc.status_code in {400, 403, 404, 409} else 502
+    return HTTPException(status_code=status, detail=exc.detail)
+
+
+@router.get(
+    "/api/communities/{community_key}/user-feedback",
+    response_model=FeedbackListResponse,
+)
+async def list_user_feedback(
+    community_key: str,
+    user: CommunityReadDep,
+    upstream: UserFeedbackDep,
+    status: FeedbackState | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, alias="pageSize", ge=1, le=100),
+) -> FeedbackListResponse:
+    """List participant-dashboard feedback owned by celine-webapp for this REC."""
+    try:
+        return await upstream.list(
+            community_key,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
+
+
+@router.get("/api/communities/{community_key}/user-feedback/{feedback_id}/screenshot")
+async def user_feedback_screenshot(
+    community_key: str,
+    feedback_id: UUID,
+    user: CommunityReadDep,
+    upstream: UserFeedbackDep,
+) -> Response:
+    try:
+        screenshot = await upstream.screenshot(community_key, feedback_id)
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
+    return Response(content=screenshot.content, media_type=screenshot.media_type)
+
+
+@router.patch(
+    "/api/communities/{community_key}/user-feedback/{feedback_id}",
+    response_model=FeedbackItemResponse,
+)
+async def update_user_feedback_status(
+    community_key: str,
+    feedback_id: UUID,
+    body: FeedbackStatusUpdate,
+    user: CommunityReadDep,
+    upstream: UserFeedbackDep,
+) -> FeedbackItemResponse:
+    try:
+        return await upstream.update_status(community_key, feedback_id, body.status)
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
