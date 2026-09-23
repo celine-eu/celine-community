@@ -34,10 +34,20 @@ class UserFeedbackError(Exception):
 
 
 class UserFeedbackClient:
-    def __init__(self, base_url: str, token: str, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        timeout: float = 15.0,
+        *,
+        manager_path: str = "/api/feedback/manager",
+        unavailable_detail: str = "Participant feedback service unavailable",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.timeout = timeout
+        self.manager_path = manager_path.rstrip("/")
+        self.unavailable_detail = unavailable_detail
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -63,7 +73,7 @@ class UserFeedbackClient:
                     **kwargs,
                 )
         except httpx.RequestError as exc:
-            raise UserFeedbackError(502, "Participant feedback service unavailable") from exc
+            raise UserFeedbackError(502, self.unavailable_detail) from exc
         self._raise(response)
         return response
 
@@ -80,7 +90,7 @@ class UserFeedbackClient:
             params["status"] = status
         response = await self._request(
             "GET",
-            f"/api/feedback/manager/{community_key}",
+            f"{self.manager_path}/{community_key}",
             params=params,
         )
         return FeedbackListResponse.model_validate(response.json())
@@ -88,7 +98,7 @@ class UserFeedbackClient:
     async def screenshot(self, community_key: str, feedback_id: UUID) -> Screenshot:
         response = await self._request(
             "GET",
-            f"/api/feedback/manager/{community_key}/{feedback_id}/screenshot",
+            f"{self.manager_path}/{community_key}/{feedback_id}/screenshot",
         )
         return Screenshot(
             content=response.content,
@@ -105,7 +115,20 @@ class UserFeedbackClient:
     ) -> FeedbackItemResponse:
         response = await self._request(
             "PATCH",
-            f"/api/feedback/manager/{community_key}/{feedback_id}",
+            f"{self.manager_path}/{community_key}/{feedback_id}",
             json={"status": status},
         )
         return FeedbackItemResponse.model_validate(response.json())
+
+
+class RoiFeedbackClient(UserFeedbackClient):
+    """ROI-owned feedback, exposed through the same manager response contract."""
+
+    def __init__(self, base_url: str, token: str, timeout: float = 15.0) -> None:
+        super().__init__(
+            base_url,
+            token,
+            timeout,
+            manager_path="/api/v1/feedback/manager",
+            unavailable_detail="ROI feedback service unavailable",
+        )

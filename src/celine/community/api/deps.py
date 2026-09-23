@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from celine.community.db import get_db
 from celine.community.security.policy import policy
 from celine.community.services.recs import has_console_access
-from celine.community.services.user_feedback import UserFeedbackClient
+from celine.community.services.user_feedback import RoiFeedbackClient, UserFeedbackClient
 from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,19 @@ def get_user_feedback_client(request: Request) -> UserFeedbackClient:
         raise HTTPException(status_code=401, detail="Missing authentication token")
     return UserFeedbackClient(
         settings.webapp_api_url,
+        token,
+        timeout=settings.downstream_timeout_seconds,
+    )
+
+
+def get_roi_feedback_client(request: Request) -> RoiFeedbackClient:
+    if not settings.roi_api_url:
+        raise HTTPException(status_code=503, detail="ROI feedback API not configured")
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+    return RoiFeedbackClient(
+        settings.roi_api_url,
         token,
         timeout=settings.downstream_timeout_seconds,
     )
@@ -351,3 +364,4 @@ RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]
 NudgingDep = Annotated[NudgingAdminClient, Depends(get_nudging_client)]
 OnboardingDep = Annotated[OnboardingAdminClient, Depends(get_onboarding_client)]
 UserFeedbackDep = Annotated[UserFeedbackClient, Depends(get_user_feedback_client)]
+RoiFeedbackDep = Annotated[RoiFeedbackClient, Depends(get_roi_feedback_client)]

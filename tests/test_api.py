@@ -18,6 +18,7 @@ from celine.community.api.deps import (
     get_dt_client,
     get_nudging_client,
     get_registry_client,
+    get_roi_feedback_client,
     get_user_feedback_client,
     get_user_from_request,
 )
@@ -433,14 +434,13 @@ def test_user_dashboard_feedback_is_proxied_through_the_authorized_rec() -> None
     upstream = _UserFeedbackUpstream()
     app.dependency_overrides[get_user_feedback_client] = lambda: upstream
     try:
-        listed = client.get("/api/communities/gr-renewable-community/user-feedback?pageSize=20")
+        listed = client.get("/api/communities/example_rec/user-feedback?pageSize=20")
         screenshot = client.get(
-            "/api/communities/gr-renewable-community/user-feedback/"
+            "/api/communities/example_rec/user-feedback/"
             "6f9e38e0-44db-40ae-bfad-40da26e52f73/screenshot"
         )
         updated = client.patch(
-            "/api/communities/gr-renewable-community/user-feedback/"
-            "6f9e38e0-44db-40ae-bfad-40da26e52f73",
+            "/api/communities/example_rec/user-feedback/6f9e38e0-44db-40ae-bfad-40da26e52f73",
             json={"status": "resolved"},
         )
     finally:
@@ -462,12 +462,53 @@ def test_user_dashboard_feedback_reports_an_upstream_outage() -> None:
 
     app.dependency_overrides[get_user_feedback_client] = lambda: UnavailableUserFeedback()
     try:
-        response = client.get("/api/communities/gr-renewable-community/user-feedback?pageSize=20")
+        response = client.get("/api/communities/example_rec/user-feedback?pageSize=20")
     finally:
         app.dependency_overrides.pop(get_user_feedback_client, None)
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Participant feedback service unavailable"
+
+
+def test_roi_feedback_is_proxied_through_the_authorized_rec() -> None:
+    upstream = _UserFeedbackUpstream()
+    app.dependency_overrides[get_roi_feedback_client] = lambda: upstream
+    try:
+        listed = client.get("/api/communities/example_rec/roi-feedback?pageSize=20")
+        screenshot = client.get(
+            "/api/communities/example_rec/roi-feedback/"
+            "6f9e38e0-44db-40ae-bfad-40da26e52f73/screenshot"
+        )
+        updated = client.patch(
+            "/api/communities/example_rec/roi-feedback/6f9e38e0-44db-40ae-bfad-40da26e52f73",
+            json={"status": "seen"},
+        )
+        forbidden = client.get("/api/communities/other_rec/roi-feedback?pageSize=20")
+    finally:
+        app.dependency_overrides.pop(get_roi_feedback_client, None)
+
+    assert listed.status_code == 200
+    assert screenshot.status_code == 200
+    assert screenshot.content == b"participant-screen"
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "seen"
+    assert forbidden.status_code == 403
+    assert [call[0] for call in upstream.calls] == ["list", "screenshot", "update"]
+
+
+def test_roi_feedback_reports_an_upstream_outage() -> None:
+    class UnavailableRoiFeedback:
+        async def list(self, community_key, *, status, page, page_size):
+            raise UserFeedbackError(502, "ROI feedback service unavailable")
+
+    app.dependency_overrides[get_roi_feedback_client] = lambda: UnavailableRoiFeedback()
+    try:
+        response = client.get("/api/communities/example_rec/roi-feedback?pageSize=20")
+    finally:
+        app.dependency_overrides.pop(get_roi_feedback_client, None)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "ROI feedback service unavailable"
 
 
 def test_feedback_persists_manager_context_and_screenshot() -> None:

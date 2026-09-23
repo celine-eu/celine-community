@@ -80,8 +80,8 @@ rather than trusting it. The manager inbox exposes only REC-scoped operational f
 screenshots through a separate authenticated route, and records monotonic seen/resolved transitions
 in the same audit log.
 
-The same inbox also exposes participant-dashboard feedback as a distinct source. Those rows remain
-owned by `celine-webapp`: this BFF first authorizes the selected REC, forwards the caller's verified
-token to that service, and adapts its list, screenshot, and status routes to the manager UI's
-same-origin contract. Keeping the sources separate preserves independent pagination and workflow
-state and avoids runtime access to another service's database.
+The same inbox also exposes participant-dashboard and ROI-calculator feedback as distinct sources.
+Those rows remain owned by `celine-webapp` and `celine-roi`: this BFF first authorizes the selected
+REC, forwards the caller's verified token to the owning service, and adapts its list, screenshot,
+and status routes to the manager UI's same-origin contract. Keeping the sources separate preserves
+independent pagination and workflow state and avoids runtime access to another service's database.

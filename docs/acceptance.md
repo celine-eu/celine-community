@@ -44,9 +44,9 @@ and Digital Twin URL, then verify:
   motion is respected;
 - the feedback button is available on every authenticated manager page and successfully persists
   rating, comment, page diagnostics and an optional screenshot under the REC the page is for;
-- the feedback inbox can explicitly switch between manager-dashboard and participant-dashboard
-  feedback, lists only the authorized REC selected in the dashboard, and does not expose stored
-  subject, IP or user-agent fields; both sources record monotonic `new` → `seen` → `resolved`
+- the feedback inbox can explicitly switch between manager-dashboard, participant-dashboard and
+  ROI-calculator feedback, lists only the authorized REC selected in the dashboard, and does not expose stored
+  subject, IP or user-agent fields; all sources record monotonic `new` → `seen` → `resolved`
   transitions and manager-dashboard transitions also append this service's audit event;
 - timeout or missing-fetcher scenarios degrade to partial data without blocking unrelated panels;
 - alert acknowledge, mute and assign actions remain REC-scoped and appear in the audit log.
