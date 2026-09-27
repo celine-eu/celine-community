@@ -9,6 +9,7 @@ from celine.community.api import (
     feedback_router,
     flexibility_router,
     member_emails_router,
+    member_meter_router,
     member_sends_router,
     members_router,
     objectives_router,
@@ -30,6 +31,7 @@ def create_api_router() -> APIRouter:
     router.include_router(members_router)
     router.include_router(member_sends_router)
     router.include_router(member_emails_router)
+    router.include_router(member_meter_router)
     router.include_router(exports_router)
     router.include_router(feedback_router)
     return router

@@ -597,6 +597,9 @@ class MemberSummary(ApiModel):
     role: str
     status: str
     area: str
+    #: Whether the member holds a meter in the registry: yes or no, never which
+    #: one (ADR-0004). None when the registry's meter list did not answer.
+    has_meter: bool | None = None
 
 
 class MembersResponse(ApiModel):
@@ -605,6 +608,60 @@ class MembersResponse(ApiModel):
     #: The registry's cursor for the next page, passed through unchanged. A `q`
     #: filter applies to each page, so a page can be empty and still have a next.
     next_cursor: str | None = None
+
+
+MeterType = Literal["consumption", "production", "bidirectional", "import", "export"]
+
+
+#: `meter-` plus the id must fit the registry's 128-character asset key.
+SENSOR_ID_MAX_LENGTH = 128 - len("meter-")
+
+
+class MeterAttach(ApiModel):
+    """What a manager types to attach a meter: the sensor id, free text (ADR-0004).
+
+    The id is trimmed here and again by the registry. `meter_type` defaults from the
+    member's role: `bidirectional` for a `prosumer`, `consumption` otherwise.
+
+    At most 122 characters, so that the asset key `meter-<id>` fits the 128 characters
+    the registry's key holds. A detach takes up to 255: an imported meter may carry a
+    longer id under another key.
+    """
+
+    sensor_id: str = Field(min_length=1, max_length=SENSOR_ID_MAX_LENGTH)
+    meter_type: MeterType | None = None
+
+
+class MeterDetach(ApiModel):
+    """Which of the member's meters to detach, by the sensor id the dialog shows."""
+
+    sensor_id: str = Field(min_length=1, max_length=255)
+
+
+class MemberMeter(ApiModel):
+    sensor_id: str
+    meter_type: str | None = None
+
+
+class MemberMeters(ApiModel):
+    """The meters of the one member the dialog is open for, and nothing else."""
+
+    member_key: str
+    #: What an attach sends when the manager picks no type: from the member's role.
+    default_meter_type: MeterType
+    meters: list[MemberMeter]
+
+
+class MeterAttached(ApiModel):
+    """An attach the registry accepted, or found already made.
+
+    `attached` (`201`): the member now holds the meter. `already_attached` (`200`):
+    they held it already, and nothing was written; `meter_type` is the one it has.
+    """
+
+    outcome: Literal["attached", "already_attached"]
+    sensor_id: str
+    meter_type: str
 
 
 class MemberEmailSent(ApiModel):

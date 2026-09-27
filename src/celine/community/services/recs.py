@@ -113,17 +113,27 @@ async def accessible_recs(
     return accessible, registry_communities is not None
 
 
+def meter_writes_configured() -> bool:
+    """Whether a meter can be attached here: a registry, and a write scope to ask for."""
+    return bool(settings.rec_registry_url and settings.rec_registry_assets_write_scope)
+
+
 def offered(capabilities: frozenset[str]) -> frozenset[str]:
     """The granted capabilities this deployment can honour.
 
     `members.invite` goes through onboarding. Without `ONBOARDING_URL` every press
     would answer `503`, so the grant is not reported and the buttons are not shown.
+    `members.meter` writes to the REC registry with its own scope, and is dropped the
+    same way when the registry URL or `REC_REGISTRY_ASSETS_WRITE_SCOPE` is unset.
     The policy still decides who may press; this decides only whether pressing can
     work here.
     """
+    unavailable: set[str] = set()
     if not settings.onboarding_url:
-        return capabilities - {"members.invite"}
-    return capabilities
+        unavailable.add("members.invite")
+    if not meter_writes_configured():
+        unavailable.add("members.meter")
+    return capabilities - unavailable
 
 
 async def has_console_access(user: JwtUser) -> bool:

@@ -30,3 +30,5 @@ edited to say something else.
 |---|---|
 | [ADR-0001](ADR-0001-the-rec-registry-is-the-rec-universe.md) | The REC registry answers which RECs exist; the BFF has no Keycloak Admin interface |
 | [ADR-0002](ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md) | Members are listed by name from the registry, never stored; sends reach the provisioning service only through onboarding |
+| [ADR-0003](ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md) | The BFF writes a member's meter, role and area to the registry directly, with two optional scopes requested only for the write |
+| [ADR-0004](ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md) | A member's name meets a sensor id only in the meter dialog; the id is typed, never offered; `members.meter` and `members.edit` are person-only |

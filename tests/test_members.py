@@ -25,6 +25,21 @@ from celine.community.main import app
 REGISTRY = "http://registry.test"
 REC = "example_rec"
 MEMBERS_URL = f"{REGISTRY}/admin/communities/{REC}/members"
+METERS_URL = f"{REGISTRY}/admin/communities/{REC}/meters"
+SENSOR = "SEN-0000-7731"
+
+
+def meter(owner: str, sensor_id: str = SENSOR, key: str | None = None) -> dict:
+    return {
+        "id": f"id-{key or sensor_id}",
+        "key": key or f"meter-{sensor_id}",
+        "name": "Meter",
+        "sensor_id": sensor_id,
+        "meter_type": "consumption",
+        "owner_key": owner,
+        "owner_user_id": f"{owner.lower()}@example.org",
+    }
+
 
 client = TestClient(app)
 
@@ -71,8 +86,11 @@ def real_registry_client():
             app.dependency_overrides[get_registry_client] = previous
 
 
-def test_only_the_five_fields_a_manager_needs_leave_the_bff(real_registry_client) -> None:
+def test_only_the_six_fields_a_manager_needs_leave_the_bff(real_registry_client) -> None:
     real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
+    real_registry_client.get(METERS_URL).mock(
+        return_value=httpx.Response(200, json={"items": [meter("EX-00001")], "next_cursor": None})
+    )
 
     response = client.get(f"/api/communities/{REC}/members")
 
@@ -80,10 +98,85 @@ def test_only_the_five_fields_a_manager_needs_leave_the_bff(real_registry_client
     body = response.json()
     assert body["communityKey"] == REC
     for member in body["items"]:
-        assert set(member) == {"key", "name", "role", "status", "area"}
+        assert set(member) == {"key", "name", "role", "status", "area", "hasMeter"}
     # Not merely absent as keys: the values appear nowhere in the payload.
-    for value in ("@example.org", "did:web", "id-EX-00001"):
+    for value in ("@example.org", "did:web", "id-EX-00001", SENSOR, "meter-"):
         assert value not in response.text, value
+
+
+# ---------------------------------------------------------------------------
+# The meter flag: yes or no, never which meter (ADR-0004)
+# ---------------------------------------------------------------------------
+
+
+def test_the_list_says_who_holds_a_meter_and_never_which(real_registry_client) -> None:
+    real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
+    meters = real_registry_client.get(METERS_URL).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    meter("EX-00001"),
+                    meter("EX-00004", "SEN-0000-9902"),
+                    # Another member's meter, off this page of members.
+                    meter("EX-00099", "SEN-0000-4410"),
+                ],
+                "next_cursor": None,
+            },
+        )
+    )
+
+    response = client.get(f"/api/communities/{REC}/members")
+
+    by_key = {m["key"]: m["hasMeter"] for m in response.json()["items"]}
+    assert by_key == {"EX-00001": True, "EX-00002": False, "SUB-7F3A": False, "EX-00004": True}
+    for sensor in (SENSOR, "SEN-0000-9902", "SEN-0000-4410", "EX-00099"):
+        assert sensor not in response.text, sensor
+    # One read of the community's meters, with the default token, paged at the ceiling.
+    sent = meters.calls.last.request
+    assert sent.headers["authorization"] == "Bearer svc-community-token"
+    assert dict(sent.url.params) == {"limit": "500"}
+
+
+def test_the_meter_list_is_followed_across_pages(real_registry_client) -> None:
+    real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
+    real_registry_client.get(METERS_URL).mock(
+        side_effect=[
+            httpx.Response(200, json={"items": [meter("EX-00001")], "next_cursor": "meter-a"}),
+            httpx.Response(200, json={"items": [meter("SUB-7F3A", "SEN-2")], "next_cursor": None}),
+        ]
+    )
+
+    by_key = {
+        m["key"]: m["hasMeter"]
+        for m in client.get(f"/api/communities/{REC}/members").json()["items"]
+    }
+
+    assert by_key["EX-00001"] is True
+    assert by_key["SUB-7F3A"] is True
+    assert by_key["EX-00002"] is False
+
+
+@pytest.mark.parametrize(
+    "meters_answer",
+    [httpx.Response(500, text=SENSOR), httpx.ConnectError("refused")],
+)
+def test_an_unreadable_meter_list_leaves_the_flag_unknown_not_the_list_down(
+    real_registry_client, caplog, meters_answer
+) -> None:
+    real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
+    route = real_registry_client.get(METERS_URL)
+    if isinstance(meters_answer, Exception):
+        route.mock(side_effect=meters_answer)
+    else:
+        route.mock(return_value=meters_answer)
+
+    with caplog.at_level(logging.DEBUG):
+        response = client.get(f"/api/communities/{REC}/members")
+
+    assert response.status_code == 200
+    assert {m["hasMeter"] for m in response.json()["items"]} == {None}
+    assert SENSOR not in "\n".join(record.getMessage() for record in caplog.records)
 
 
 def test_the_service_token_and_the_cursor_reach_the_registry_unchanged(

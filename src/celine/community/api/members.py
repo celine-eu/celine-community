@@ -4,10 +4,14 @@ Names are read from the REC registry on every request and never kept: no databas
 write, no cache, and no name in a log line, which names the member key instead.
 Requester, 2026-09-14 (A1): "needed or the manager won't be able to use it".
 
-Only `key`, `name`, `role`, `status` and `area` leave this module. The registry's
-list item also carries `user_id` (often the member's email address), `did` and a
-delivery point count, and none of them is needed to find a person and press a
-button.
+Only `key`, `name`, `role`, `status`, `area` and `hasMeter` leave this module. The
+registry's list item also carries `user_id` (often the member's email address),
+`did` and a delivery point count, and none of them is needed to find a person and
+press a button.
+
+`hasMeter` is yes or no, never which meter (ADR-0004). It comes from the
+community's meter list, of which only the owner keys are kept: the sensor ids are
+dropped as the page is read, and never logged.
 """
 
 import logging
@@ -40,6 +44,49 @@ def shown_name(key: str, name: str | None) -> str | None:
     if name.strip().casefold() == key.strip().casefold():
         return None
     return name
+
+
+#: How many registry pages of meters the flag may read. A REC with more meters than
+#: this shows the flag as unknown rather than holding the request open.
+_METER_PAGES = 10
+
+
+async def meter_holders(registry, community_key: str) -> set[str] | None:
+    """The keys of the members who hold a meter, or None when it cannot be told.
+
+    Only `owner_key` is kept from each item: the sensor id never leaves this loop.
+    """
+    holders: set[str] = set()
+    cursor: str | None = None
+    try:
+        for _ in range(_METER_PAGES):
+            response = await registry.list_meters(community_key, limit=MAX_PAGE, cursor=cursor)
+            page = getattr(response, "parsed", None)
+            items = getattr(page, "items", None)
+            if items is None:
+                raise RuntimeError(f"REC Registry returned HTTP {response.status_code}")
+            holders.update(
+                owner
+                for item in items
+                if isinstance(owner := getattr(item, "owner_key", None), str)
+            )
+            next_cursor = getattr(page, "next_cursor", None)
+            if not isinstance(next_cursor, str) or not next_cursor:
+                return holders
+            cursor = next_cursor
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "REC Registry meters unavailable for the members list community=%s error=%s",
+            community_key,
+            type(exc).__name__,
+        )
+        return None
+    logger.warning(
+        "REC Registry meters exceed %s pages; meter flag unknown community=%s",
+        _METER_PAGES,
+        community_key,
+    )
+    return None
 
 
 def _matches(member: MemberSummary, needle: str) -> bool:
@@ -100,6 +147,7 @@ async def members(
         )
         raise HTTPException(status_code=503, detail={"code": "registry_unavailable"})
 
+    holders = await meter_holders(registry, community_key) if items else set()
     summaries = [
         MemberSummary(
             key=item.key,
@@ -107,6 +155,7 @@ async def members(
             role=item.role,
             status=item.status,
             area=item.area,
+            has_meter=None if holders is None else item.key in holders,
         )
         for item in items
     ]

@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     digital_twin_scope: str | None = "digital-twin.values.read dataset.query"
     rec_registry_url: str | None = "http://host.docker.internal:8004"
     rec_registry_scope: str | None = "rec-registry.read"
+    # Asked for only when a manager attaches or detaches a meter, never as part of
+    # the default token: the Digital Twin forwards that one (ADR-0003). Empty turns
+    # the meter action off, and `GET /api/me` then does not report `members.meter`.
+    rec_registry_assets_write_scope: str | None = "rec-registry.assets.write"
     flexibility_api_url: str | None = "http://host.docker.internal:8017"
     nudging_api_url: str | None = "http://host.docker.internal:8016"
     webapp_api_url: str | None = "http://host.docker.internal:8014"

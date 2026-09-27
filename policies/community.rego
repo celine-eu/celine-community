@@ -67,6 +67,7 @@ required_org_groups := {
 	"alerts.write": {"admins", "managers"},
 	"members.read": {"admins", "managers"},
 	"members.invite": {"admins", "managers"},
+	"members.meter": {"admins", "managers"},
 }
 
 # Realm membership is platform-wide. Only administrators receive that grant:
@@ -84,6 +85,7 @@ required_realm_groups := {
 	"alerts.write": {"admins"},
 	"members.read": {"admins"},
 	"members.invite": {"admins"},
+	"members.meter": {"admins"},
 }
 
 # A scope a human's token must carry *in addition* to the group. Orthogonal to
@@ -117,9 +119,11 @@ service_scopes := {
 # Actions only a person may perform, whatever scope a service holds. They have no
 # `service_scopes` entry, and the `community.admin` superset below skips them.
 # `members.read` puts participant names on a screen, and `members.invite` sends
-# an email, which only ever follows a person's decision. A service that could do
-# either through this BFF would be a way round both.
-person_only_actions := {"members.read", "members.invite"}
+# an email, which only ever follows a person's decision. `members.meter` attaches
+# or detaches a member's meter, which puts a name beside a sensor id in one dialog
+# and changes whose readings the meter's rows are (ADR-0004). A service that could
+# do any of them through this BFF would be a way round all three.
+person_only_actions := {"members.read", "members.invite", "members.meter"}
 
 known_action if required_org_groups[input.action.name]
 

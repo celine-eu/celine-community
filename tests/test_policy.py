@@ -208,7 +208,7 @@ async def test_an_action_with_no_capability_declared_is_denied() -> None:
 # The members surface: names on a screen, and an email that follows a press
 # ---------------------------------------------------------------------------
 
-MEMBER_ACTIONS = ("members.read", "members.invite")
+MEMBER_ACTIONS = ("members.read", "members.invite", "members.meter")
 
 
 @pytest.mark.parametrize("action", MEMBER_ACTIONS)
@@ -267,3 +267,34 @@ async def test_me_offers_members_invite_only_when_onboarding_is_configured(monke
     monkeypatch.setattr(settings, "onboarding_url", "http://onboarding.internal")
     recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
     assert "members.invite" in recs[0].capabilities
+
+
+async def test_me_offers_members_meter_only_when_meter_writes_are_configured(monkeypatch) -> None:
+    """Without a registry or its write scope every press would be a 503 (ADR-0004)."""
+    from celine.community.services.recs import accessible_recs
+    from celine.community.settings import settings
+
+    monkeypatch.setattr(settings, "rec_registry_url", "http://registry.internal")
+    monkeypatch.setattr(settings, "rec_registry_assets_write_scope", "rec-registry.assets.write")
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.meter" in recs[0].capabilities
+
+    for url, scope in (
+        ("http://registry.internal", ""),
+        ("http://registry.internal", None),
+        (None, "rec-registry.assets.write"),
+    ):
+        monkeypatch.setattr(settings, "rec_registry_url", url)
+        monkeypatch.setattr(settings, "rec_registry_assets_write_scope", scope)
+        recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+        assert "members.meter" not in recs[0].capabilities, (url, scope)
+        assert "members.read" in recs[0].capabilities
+
+
+async def test_members_meter_is_not_granted_to_a_realm_manager_or_another_recs_admin() -> None:
+    """D26: realm `/admins` yes; a realm `/managers` badge or another REC's admins, no."""
+    assert await allowed(user("admin", groups=["/admins"]), "members.meter", "rec-a") is True
+    assert await allowed(user("rm", groups=["/managers"]), "members.meter", "rec-a") is False
+    other_admin = user("other-admin", orgs={"rec-b": rec("/admins")})
+    assert await allowed(other_admin, "members.meter", "rec-a") is False
+    assert await allowed(other_admin, "members.meter", "rec-b") is True

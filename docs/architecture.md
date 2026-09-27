@@ -43,11 +43,21 @@ through `partial` and `missingSources` in overview responses.
 The one exception is the members surface. Participant **names** are read through from the REC
 registry on each request, so a manager can find a person, and are not persisted, cached or logged
 ([ADR-0002](decisions/ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)).
-`members.read` and `members.invite` are person-only actions. Neither has a service scope, and
-`community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
+`members.read`, `members.invite` and `members.meter` are person-only actions. None has a service
+scope, and `community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
 `ONBOARDING_URL` is set. A send reaches the provisioning service only through onboarding, with this
 BFF's token and the manager's forwarded token. The audit row names the member key, and the sends
 view reads those rows back with names resolved at read time.
+
+A manager attaches and detaches a member's meter under `members.meter`. The BFF writes the meter
+asset to the REC registry directly, with a token asked for `rec-registry.assets.write` for the write
+alone ([ADR-0003](decisions/ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md)).
+A name meets a sensor id only in the meter dialog: the members list carries a yes/no meter flag, and
+no audit row or log line holds a sensor id
+([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)).
+`members.meter` is reported by `GET /api/me` only when the registry URL and the write scope are
+configured. Planned, not implemented: correcting a member's role and area under `members.edit`,
+with `rec-registry.members.profile.write`.
 
 The opt-in development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an
 organization-scoped manager or a realm admin, so both policy branches are exercisable without a
