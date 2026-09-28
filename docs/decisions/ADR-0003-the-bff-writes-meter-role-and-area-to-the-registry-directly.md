@@ -8,8 +8,9 @@ longer read-only. Its Keycloak decision stands, and so does
 [ADR-0002](ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)'s rule that
 sends reach the provisioning service only through onboarding.
 
-The meter attach and detach are implemented; the profile write is not yet.
-[`../acceptance.md`](../acceptance.md) lists what is pending.
+The meter attach and detach, the profile write and the area map's read
+(`GET …/areas/shapes`) are implemented in this BFF, and the dashboard's dialogs and map in
+celine-frontend `apps/community`. [`../acceptance.md`](../acceptance.md) lists what is pending.
 
 ## Context
 
@@ -71,11 +72,16 @@ which REC, is decided by `policies/community.rego` from the token
 capabilities). There is no cache and no retry: pressing again is the manager's decision.
 
 **Every press that reaches the registry writes one `audit_events` row**, naming the member key and
-the outcome and carrying no sensor id. The "Sent emails" view does not list these rows: it reads
+the outcome and carrying no sensor id. A refused profile edit also records what it attempted, each
+field's `{from, to}`, beside `changed: []` (requester, 2026-09-28), so the row says what the manager
+tried even when nothing changed. The "Sent emails" view does not list these rows: it reads
 only invitation and password-reset rows.
 
 **Areas are read here, never written.** The dialog's area select and the read-only area map read
-the community's areas from the registry and their boundary shapes from the Digital Twin. Areas and
+the community's areas from the registry and their boundary shapes from the Digital Twin's
+`boundary_shape` fetcher, with the BFF's default Digital Twin token; the Digital Twin reads the
+boundaries from dataset-api with its own service identity (requester, 2026-09-28), since they are
+open reference data. The shapes carry no member and are cached like the aggregates. Areas and
 topology are declared in onboarding templates and synced to the registry by onboarding; this BFF
 writes neither.
 

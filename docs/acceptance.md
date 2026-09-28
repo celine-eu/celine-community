@@ -51,6 +51,11 @@ and Digital Twin URL, then verify:
   registry is asked;
 - `DELETE …/members/{member_key}/meter` with that id removes the meter, and the list answers
   `hasMeter: false` again;
+- for a member whose registry status is `pending`, `suspended` or `inactive`, `PUT …/meter` and
+  `PATCH …/members/{member_key}` answer `409 member_not_active` and write nothing (no write token is
+  requested), while `DELETE …/meter` still detaches their meter; the members list carries each
+  member's `status`, from which the dashboard decides which actions to offer
+  ([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md));
 - a REC organization's `admins` or `managers` and a realm `/admins` member hold `members.meter` on
   that REC; a manager of another REC, a realm `/managers` badge and a service token holding
   `community.admin` are refused it. Without `REC_REGISTRY_ASSETS_WRITE_SCOPE` or a registry URL,
@@ -59,10 +64,50 @@ and Digital Twin URL, then verify:
   registry writes one audit row naming the member key and the outcome, and neither that row nor any BFF log line holds
   a sensor id. The "Sent emails" view does not list meter presses;
 - CSV and XLSX exports carry no meter flag and no sensor id;
+- `PATCH …/members/{member_key}` with `{role: "prosumer"}` for a `consumer` answers `200 updated`
+  and the members list then shows the new role; `{area}` with one of the REC's area keys does the
+  same for the area, and the same values again answer `200 unchanged` and write nothing. A role other
+  than `consumer` or `prosumer` answers `422 role_not_allowed` before the registry is asked; a role
+  change for a `producer`, `operator` or `admin` answers `409 role_read_only`, while their area
+  stays editable; an area that is not one of the REC's answers `422 unknown_area`. No other member
+  field is accepted ([ADR-0003](decisions/ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md));
+- `GET …/areas` lists the REC's area keys and names, with each area's boundary reference when the
+  registry records one and its primary substation (`primarySubstation`, the area's first topology
+  node id);
+- `GET …/areas/shapes` (`community.read`) answers, for each of the REC's areas that references a
+  boundary, `{areaKey, name, boundaryId, geometry}`, the geometry being the Digital Twin's
+  `boundary_shape` GeoJSON, or `null` for an id the Digital Twin does not know or a boundary it
+  cannot be asked for (a source outside its enum, an id over 64 characters: not sent, so the rest
+  of the map still answers); an area without a
+  boundary is not listed and a REC without boundaries asks the Digital Twin nothing. A Digital Twin
+  outage answers `502 digital_twin_unavailable`, a refused Digital Twin token `502
+  digital_twin_refused`, and neither is a `500` or cached; no shape or coordinate is logged. A
+  manager of another REC is refused `403` before the registry or the Digital Twin is asked;
+- a REC organization's `admins` or `managers` and a realm `/admins` member hold `members.edit` on
+  that REC; a manager of another REC, a realm `/managers` badge and a service token holding
+  `community.admin` are refused it. Without `REC_REGISTRY_PROFILE_WRITE_SCOPE` or a registry URL,
+  `GET /api/me` does not report it;
+- the BFF requests `rec-registry.members.profile.write` only for the profile write, and writes
+  through the registry's profile route, never its general member `PATCH`. Every profile press that
+  reaches the registry writes one audit row naming the member key, the outcome and the fields
+  changed, with no name, email or address; a refused press records `changed: []` and `attempted`,
+  each asked field's `{from, to}`; the "Sent emails" view does not list them;
+- `GET …/alerts/audit-events` lists the meter and profile rows beside the alert, objective,
+  feedback and email rows, and none of them holds a sensor id;
 - the dashboard's members page shows "meter: yes / no" and never the id; a member approved through
   onboarding shows "meter: no". The meter dialog takes a typed sensor id of at most 122 characters
   and offers no list or suggestion of meters; it translates `sensor_held` and the other codes; a
   caller without `members.meter` sees no meter action, and no browser storage holds a sensor id;
+- with `members.edit`, the dashboard's edit dialog moves a member's role between `consumer` and
+  `prosumer` and changes their area from a select of the REC's areas; a `producer`, like an imported
+  `operator` or `admin`, is shown read-only (area stays editable). Nothing is sent until the manager
+  confirms a step that lists the changes and warns that both change the meter's rows from the next
+  pipeline run and that a later full refresh rewrites history; a caller without `members.edit` sees
+  no edit action. The dashboard offers detach for every member, and attach and the role/area
+  edit only for active members;
+- the edit dialog's area select names each area's primary substation, and below it a read-only map
+  (celine-frontend `apps/community`, leaflet on OpenStreetMap tiles) draws the REC's areas from
+  `GET …/areas/shapes`; nothing on the dashboard edits an area or a shape;
 - device, flexibility, points, nudging and alert flows remain usable at mobile and desktop widths;
 - keyboard focus is visible, skip-to-content works, drawers expose dialog semantics, and reduced
   motion is respected;
@@ -81,31 +126,27 @@ acceptance remains pending for objective actuals, pipeline status, nudging-event
 anti-gaming and alert-ingestion sources listed in `downstream-integrations.md`, and for a session
 with a real REC Manager.
 
-## Planned: meter dialog, role and area
+## Pending: the end-to-end run
 
-**Status:** planned. These items describe behaviour that is designed
+**Status:** pending. The meter, role and area features
 ([ADR-0003](decisions/ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md),
-[ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)) and not yet
-built. Each moves into the checklist above in the change that makes it true. The meter routes and the
-`members.meter` capability, the dashboard's meter dialog (celine-frontend `apps/community`) and its
-"meter: no" for a member approved through onboarding are in the checklist already.
+[ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)) are built and
+listed in the checklist above: the meter routes and `members.meter`, the profile route, the areas
+reads and `members.edit`, the dashboard's meter and edit dialogs and its read-only area map. These
+items need a whole stack rather than this service alone: a REC registry at 1.6.0, onboarding's
+`registry-sync`, the Digital Twin and the participant webapp. Each moves into the checklist in the
+change that verifies it.
 
 - a community with managers and no members opens with an empty members list, and every section
   still degrades to partial data rather than failing;
 - the participant webapp tells a member approved through onboarding that they have no smart meter
   yet;
-- with `members.edit`, a manager moves a member's role between `consumer` and `prosumer` and
-  changes their area; a `producer`, like an imported `operator` or `admin`, is shown read-only, and
-  the BFF refuses a profile write that sets any other role or changes such a member's role (area
-  stays editable). The dialog warns that both change the meter's rows from the next pipeline run;
-- the area select and a read-only map show the community's areas and their primary-substation
-  boundaries; nothing on the dashboard edits an area or a shape;
-- a REC organization's `admins` or `managers` and a realm `/admins` member hold `members.edit` on
-  that REC; a manager of another REC, a realm `/managers` badge and a service token holding
-  `community.admin` are refused it, and a caller without it sees no edit action;
-- the BFF requests `rec-registry.members.profile.write` only for the profile write; every profile
-  press that reaches the registry writes one audit row naming the member key and the outcome, and
-  the "Sent emails" view does not list them.
+- the manager attaches a sensor that reported before the member onboarded, and within five minutes
+  the member's webapp shows that meter's whole history; an attach of the same sensor in another REC
+  answers `409 sensor_held`;
+- the area map draws the shapes of a REC whose areas onboarding's `registry-sync` created from a
+  template naming two primary substations.
 
-Final acceptance of the area map also waits for the Digital Twin boundary fetchers and for
-`st_asgeojson` and `st_simplify` in the dataset-api SQL allowlist.
+Final acceptance of the area map also waits for the deployed Digital Twin `boundary_shape` fetcher
+(with dataset-api's `st_asgeojson` and `st_simplify`) and for registry areas that carry a
+boundary reference, which onboarding's `registry-sync` writes.

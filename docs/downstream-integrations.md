@@ -3,9 +3,8 @@
 The browser talks only to `celine-community`. In real-data mode the BFF reads governed aggregate
 or device-keyed data through `celine.sdk.dt.DTClient`. The only participant identity it reads is a
 member's name, from the REC registry, for the members list. It also reads whether a member holds a
-meter, and writes meter assets to the registry
+meter, and writes meter assets and a member's role and area to the registry
 ([ADR-0003](decisions/ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md)).
-Planned: it writes a member's role and area too.
 Every call uses `DOWNSTREAM_TIMEOUT_SECONDS` (12 seconds by default). Unavailable or timed-out
 fetchers produce `partial: true` and a `missingSources` entry instead of synthetic production data.
 
@@ -24,6 +23,7 @@ database workflows such as alert mutations and objective writes are not cached.
 | Flexibility | `rec_flexibility_windows_history`, `rec_flexibility_chain_daily` |
 | Gamification | `rec_points_distribution`, `rec_points_leaderboard_community`, `rec_anti_gaming_flags_community`, `rec_device_points_ledger` |
 | Nudging | Nudging API `GET /admin/analytics/communities/{id}/conversion` |
+| Area map | `boundary_shape` (energy-community domain, open reference boundaries) |
 
 The Digital Twin now implements the energy, monitored-population, meter-health/device, flexibility
 and points fetchers in this table. They query governed datasets and return aggregates or technical
@@ -51,6 +51,41 @@ key for a different sensor id, the BFF refuses `409 asset_key_taken` without cal
 since the upsert would replace that meter. The
 detach is `delete_asset` of the asset the member holds with that id. The registry's refusal `code`
 passes through, and its sentence is neither forwarded nor logged. There is no cache and no retry.
+An attach to a member whose `status` is not `active` is refused `409 member_not_active` after
+`get_member` and before any other call; a detach is not checked against the status.
+
+The meter and profile writes need REC registry 1.6.0 or later and `celine-sdk` 1.21.0 or later
+(`put_asset` reads the 1.6.0 asset `PUT` answer; `patch_member_profile` is the 1.6.0 profile route),
+and the two optional scopes applied to the realm; the README's deployment order says what fails
+otherwise.
+
+A profile edit reads the member (`get_member`) with the default token, and, when the area changes,
+the REC's areas (`get_community`, the keys of its `areas`), then writes with a token from a third
+client-credentials provider asking for `REC_REGISTRY_PROFILE_WRITE_SCOPE`
+(`rec-registry.members.profile.write`, an optional scope of `svc-community`, never a default one).
+The write is `patch_member_profile`, a
+`PATCH /admin/communities/{c}/members/{m}/profile` with only the fields that change, out of `role`
+and `area`; it never uses the general member `PATCH`, which needs `rec-registry.members.write`. The
+registry's refusal `code` passes through, and its sentence is neither forwarded nor logged. The
+profile edit, too, is refused `409 member_not_active` after `get_member` for a member whose `status`
+is not `active`. The areas route reads the same `get_community` with the default token and returns
+each area's key, name, its `boundary` reference when the registry records one, and its first
+`topology` node id as `primarySubstation`.
+
+The area map (`GET …/areas/shapes`) reads `get_community` with the default registry token, then
+calls the Digital Twin's `boundary_shape` value fetcher
+(`POST /communities/it/{community_key}/values/boundary_shape`, payload `{source, ids}`, at most 100
+ids per call, one call per boundary `source`) with the default Digital Twin token
+(`DIGITAL_TWIN_SCOPE`, which includes `digital-twin.values.read`). The Digital Twin queries
+dataset-api with its own service identity, because the boundaries are open reference data, so this
+BFF needs nothing on dataset-api for the map. Each returned row's `geojson` string is parsed into
+the response's `geometry`; an id the Digital Twin does not answer has `geometry: null`. A
+boundary the fetcher's payload schema would refuse (a `source` outside its enum, today only
+`gse_cabine_primarie`, or an id longer than 64 characters) is not sent, so one odd stored
+reference cannot fail the whole map; its area has `geometry: null`. The answer
+is cached like the aggregates. A Digital Twin that is unreachable or answers anything but a shape
+list is `502 digital_twin_unavailable`; a `401`/`403`, or Keycloak refusing the token, is `502
+digital_twin_refused`. Neither is cached.
 
 Member emails go to onboarding, never to the provisioning service:
 `POST /api/admin/communities/{community}/members/{member_key}/invitation|password-reset`, through

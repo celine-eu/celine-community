@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # the default token: the Digital Twin forwards that one (ADR-0003). Empty turns
     # the meter action off, and `GET /api/me` then does not report `members.meter`.
     rec_registry_assets_write_scope: str | None = "rec-registry.assets.write"
+    # Asked for only when a manager corrects a member's role or area, never as part of
+    # the default token, for the same reason (ADR-0003). Empty turns the edit action
+    # off, and `GET /api/me` then does not report `members.edit`.
+    rec_registry_profile_write_scope: str | None = "rec-registry.members.profile.write"
     flexibility_api_url: str | None = "http://host.docker.internal:8017"
     nudging_api_url: str | None = "http://host.docker.internal:8016"
     webapp_api_url: str | None = "http://host.docker.internal:8014"

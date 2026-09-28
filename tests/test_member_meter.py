@@ -107,13 +107,13 @@ def downstream(monkeypatch, session):
         yield router
 
 
-def member(role: str = "consumer", key: str = MEMBER) -> dict:
+def member(role: str = "consumer", key: str = MEMBER, status: str = "active") -> dict:
     return {
         "id": f"id-{key}",
         "key": key,
         "name": "Anna Rossi",
         "role": role,
-        "status": "active",
+        "status": status,
         "area": "north",
         "user_id": "anna@example.org",
     }
@@ -151,10 +151,12 @@ def stored(sensor_id: str = SENSOR, meter_type: str = "consumption") -> dict:
     }
 
 
-def registry(downstream, *, role: str = "consumer", held: list | None = None):
+def registry(
+    downstream, *, role: str = "consumer", held: list | None = None, status: str = "active"
+):
     """The two reads every press makes: the member, and the meters they hold."""
     downstream.get(MEMBER_URL, name="member").mock(
-        return_value=httpx.Response(200, json=member(role))
+        return_value=httpx.Response(200, json=member(role, status=status))
     )
     downstream.get(METERS_URL, name="meters").mock(
         return_value=httpx.Response(200, json={"items": held or [], "next_cursor": None})
@@ -527,6 +529,44 @@ def test_a_detach_deletes_that_one_meter_and_leaves_the_others(downstream, sessi
     assert not other.called
     [row] = session.audit_rows()
     assert row.action == "community.member.meter.detach"
+    assert row.detail == {"code": "detached", "status": 204}
+
+
+# ---------------------------------------------------------------------------
+# Attach for active members, detach for every member (ADR-0004)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["pending", "suspended", "inactive"])
+def test_an_attach_to_a_member_who_is_not_active_is_refused_without_a_write(
+    downstream, session, status
+) -> None:
+    registry(downstream, status=status)
+    put = downstream.put(ASSET_URL).mock(return_value=httpx.Response(200, json=stored()))
+
+    response = attach()
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": {"code": "member_not_active"}}
+    assert not put.called
+    assert not downstream.routes["meters"].called
+    assert "rec-registry.assets.write" not in token_scopes(downstream)
+    [row] = session.audit_rows()
+    assert row.action == "community.member.meter.attach"
+    assert row.detail == {"code": "member_not_active", "status": 200}
+    assert SENSOR not in json.dumps(row.detail)
+
+
+@pytest.mark.parametrize("status", ["pending", "suspended", "inactive"])
+def test_a_meter_is_detached_whatever_the_members_status(downstream, session, status) -> None:
+    registry(downstream, held=[meter()], status=status)
+    delete = downstream.delete(ASSET_URL).mock(return_value=httpx.Response(204))
+
+    response = detach()
+
+    assert response.status_code == 204
+    assert delete.call_count == 1
+    [row] = session.audit_rows()
     assert row.detail == {"code": "detached", "status": 204}
 
 

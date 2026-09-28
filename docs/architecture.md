@@ -43,7 +43,7 @@ through `partial` and `missingSources` in overview responses.
 The one exception is the members surface. Participant **names** are read through from the REC
 registry on each request, so a manager can find a person, and are not persisted, cached or logged
 ([ADR-0002](decisions/ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)).
-`members.read`, `members.invite` and `members.meter` are person-only actions. None has a service
+`members.read`, `members.invite`, `members.meter` and `members.edit` are person-only actions. None has a service
 scope, and `community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
 `ONBOARDING_URL` is set. A send reaches the provisioning service only through onboarding, with this
 BFF's token and the manager's forwarded token. The audit row names the member key, and the sends
@@ -56,8 +56,29 @@ A name meets a sensor id only in the meter dialog: the members list carries a ye
 no audit row or log line holds a sensor id
 ([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)).
 `members.meter` is reported by `GET /api/me` only when the registry URL and the write scope are
-configured. Planned, not implemented: correcting a member's role and area under `members.edit`,
-with `rec-registry.members.profile.write`.
+configured.
+
+A manager corrects a member's role and area under `members.edit`, through the registry's profile
+route, with a token asked for `rec-registry.members.profile.write` for the write alone (ADR-0003).
+The dashboard sets a role of `consumer` or `prosumer` only, and the BFF refuses any other role, and
+any role change for a member whose role is neither, before the registry is written; the area of
+every member stays editable. `members.edit` is reported by `GET /api/me` only when the registry URL
+and that scope are configured.
+
+An attach and a profile edit are for active members only, and a detach for every member, so a
+meter a suspended member still holds can be freed; the BFF refuses the first two with `409
+member_not_active` before any registry write (ADR-0004). A refused profile edit's audit row records
+what was attempted beside `changed: []`.
+
+The read-only area map (`GET …/areas/shapes`, `community.read`) joins the registry's areas to the
+Digital Twin's `boundary_shape`, the open reference boundaries of the primary substations. Nothing
+here writes an area or a shape: areas are declared in onboarding's REC templates, each naming one
+primary-substation boundary, and onboarding's `registry-sync` writes them and their topology node
+to the registry.
+
+The meter and profile presses are audited in the same `audit_events` table as the alert actions and
+the email sends. The "Sent emails" view reads only the two email actions, so it never lists them;
+the alerts audit feed lists every row of the REC.
 
 The opt-in development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an
 organization-scoped manager or a realm admin, so both policy branches are exercisable without a

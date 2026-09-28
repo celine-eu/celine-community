@@ -664,6 +664,88 @@ class MeterAttached(ApiModel):
     meter_type: str
 
 
+#: The roles the dashboard moves a member between (ADR-0003). Settlement counts a
+#: meter's production only for a `prosumer`; `producer`, `operator` and `admin` are
+#: shown read-only.
+EDITABLE_ROLES: tuple[str, ...] = ("consumer", "prosumer")
+
+
+class MemberProfileEdit(ApiModel):
+    """A manager's correction of a member's role, area, or both.
+
+    At least one of the two, and no other key. `role` is `consumer` or `prosumer`
+    (checked by the route, so the refusal carries a code); `area` is a key of the
+    REC's areas. `null` is the same as leaving the key out.
+    """
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+
+    role: str | None = Field(default=None, max_length=50)
+    area: str | None = Field(default=None, max_length=100)
+
+
+class MemberProfileEdited(ApiModel):
+    """A profile press the registry accepted, or found already true.
+
+    `updated`: the registry wrote `changed`. `unchanged`: the member already had
+    the role and area asked for, and nothing was written. `role` and `area` are
+    the member's as they now stand.
+    """
+
+    outcome: Literal["updated", "unchanged"]
+    member_key: str
+    role: str
+    area: str
+    changed: list[Literal["role", "area"]]
+
+
+class AreaBoundary(ApiModel):
+    """The boundary an area references, when the registry records one."""
+
+    source: str
+    id: str
+
+
+class CommunityArea(ApiModel):
+    key: str
+    name: str
+    #: The primary-substation boundary (its id is the substation's code), or None
+    #: while the registry records none for the area.
+    boundary: AreaBoundary | None = None
+    #: The area's first topology node id: the primary substation the pipelines
+    #: attribute its members to. Equal to `boundary.id` for an area that references
+    #: a boundary; None when the area lists no node.
+    primary_substation: str | None = None
+
+
+class CommunityAreas(ApiModel):
+    """The REC's areas, for the member edit dialog's area select."""
+
+    community_key: str
+    areas: list[CommunityArea]
+
+
+class AreaShape(ApiModel):
+    """One area on the read-only area map: its boundary's display shape.
+
+    `geometry` is a GeoJSON geometry object, simplified for a map (the Digital
+    Twin's `boundary_shape`), or None when the Digital Twin has no shape for the
+    boundary id. Open reference data: no member is named.
+    """
+
+    area_key: str
+    name: str
+    boundary_id: str
+    geometry: dict | None = None
+
+
+class AreaShapes(ApiModel):
+    """The shapes of the REC's areas that reference a boundary, in area-key order."""
+
+    community_key: str
+    areas: list[AreaShape]
+
+
 class MemberEmailSent(ApiModel):
     """A press that reached the provisioning service and was not refused.
 

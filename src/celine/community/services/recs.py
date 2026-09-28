@@ -118,13 +118,19 @@ def meter_writes_configured() -> bool:
     return bool(settings.rec_registry_url and settings.rec_registry_assets_write_scope)
 
 
+def profile_writes_configured() -> bool:
+    """Whether a role or area can be corrected here: a registry, and a write scope."""
+    return bool(settings.rec_registry_url and settings.rec_registry_profile_write_scope)
+
+
 def offered(capabilities: frozenset[str]) -> frozenset[str]:
     """The granted capabilities this deployment can honour.
 
     `members.invite` goes through onboarding. Without `ONBOARDING_URL` every press
     would answer `503`, so the grant is not reported and the buttons are not shown.
     `members.meter` writes to the REC registry with its own scope, and is dropped the
-    same way when the registry URL or `REC_REGISTRY_ASSETS_WRITE_SCOPE` is unset.
+    same way when the registry URL or `REC_REGISTRY_ASSETS_WRITE_SCOPE` is unset, and
+    `members.edit` when the registry URL or `REC_REGISTRY_PROFILE_WRITE_SCOPE` is.
     The policy still decides who may press; this decides only whether pressing can
     work here.
     """
@@ -133,6 +139,8 @@ def offered(capabilities: frozenset[str]) -> frozenset[str]:
         unavailable.add("members.invite")
     if not meter_writes_configured():
         unavailable.add("members.meter")
+    if not profile_writes_configured():
+        unavailable.add("members.edit")
     return capabilities - unavailable
 
 

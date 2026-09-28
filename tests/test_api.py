@@ -256,6 +256,7 @@ def test_me_lists_only_the_recs_the_token_grants() -> None:
                     "devices.read",
                     "flexibility.read",
                     "gamification.read",
+                    "members.edit",
                     "members.meter",
                     "members.read",
                     "nudging.read",

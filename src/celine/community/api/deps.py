@@ -54,6 +54,15 @@ registry_assets_write_token_provider = OidcClientCredentialsProvider(
     timeout=settings.downstream_timeout_seconds,
     verify_ssl=settings.oidc.verify_ssl,
 )
+#: Only for correcting a member's role and area (ADR-0003), for the same reason.
+registry_profile_write_token_provider = OidcClientCredentialsProvider(
+    base_url=settings.oidc.base_url,
+    client_id=settings.oidc.client_id or "",
+    client_secret=settings.oidc.client_secret or "",
+    scope=settings.rec_registry_profile_write_scope,
+    timeout=settings.downstream_timeout_seconds,
+    verify_ssl=settings.oidc.verify_ssl,
+)
 nudging_token_provider = OidcClientCredentialsProvider(
     base_url=settings.oidc.base_url,
     client_id=settings.oidc.client_id or "",
@@ -316,6 +325,22 @@ async def require_members_meter(
     return user
 
 
+async def require_members_edit(
+    community_key: str,
+    user: Annotated[JwtUser, Depends(get_user_from_request)],
+) -> JwtUser:
+    decision = await policy.allow_members_edit(user, community_key)
+    if not decision.allowed:
+        logger.warning(
+            "Member edit denied sub=%s community=%s reason=%s",
+            user.sub,
+            community_key,
+            decision.reason,
+        )
+        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+    return user
+
+
 def get_dt_client() -> DTClient:
     if not settings.digital_twin_api_url:
         raise HTTPException(status_code=503, detail="Digital Twin API not configured")
@@ -348,6 +373,22 @@ def get_registry_assets_writer() -> RecRegistryAdminClient:
     return RecRegistryAdminClient(
         base_url=settings.rec_registry_url,
         token_provider=registry_assets_write_token_provider,
+        timeout=settings.downstream_timeout_seconds,
+        verify_ssl=settings.oidc.verify_ssl,
+    )
+
+
+def get_registry_profile_writer() -> RecRegistryAdminClient:
+    """The registry client for a role or area correction, and for nothing else.
+
+    It carries `rec-registry.members.profile.write`; every other registry call
+    keeps `get_registry_client` and its default `rec-registry.read` token.
+    """
+    if not (settings.rec_registry_url and settings.rec_registry_profile_write_scope):
+        raise HTTPException(status_code=503, detail={"code": "profile_writes_not_configured"})
+    return RecRegistryAdminClient(
+        base_url=settings.rec_registry_url,
+        token_provider=registry_profile_write_token_provider,
         timeout=settings.downstream_timeout_seconds,
         verify_ssl=settings.oidc.verify_ssl,
     )
@@ -388,10 +429,12 @@ AlertsWriteDep = Annotated[JwtUser, Depends(require_alerts_write)]
 MembersReadDep = Annotated[JwtUser, Depends(require_members_read)]
 MembersInviteDep = Annotated[JwtUser, Depends(require_members_invite)]
 MembersMeterDep = Annotated[JwtUser, Depends(require_members_meter)]
+MembersEditDep = Annotated[JwtUser, Depends(require_members_edit)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 DTDep = Annotated[DTClient, Depends(get_dt_client)]
 RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]
 RegistryAssetsWriterDep = Annotated[RecRegistryAdminClient, Depends(get_registry_assets_writer)]
+RegistryProfileWriterDep = Annotated[RecRegistryAdminClient, Depends(get_registry_profile_writer)]
 NudgingDep = Annotated[NudgingAdminClient, Depends(get_nudging_client)]
 OnboardingDep = Annotated[OnboardingAdminClient, Depends(get_onboarding_client)]
 UserFeedbackDep = Annotated[UserFeedbackClient, Depends(get_user_feedback_client)]

@@ -208,7 +208,7 @@ async def test_an_action_with_no_capability_declared_is_denied() -> None:
 # The members surface: names on a screen, and an email that follows a press
 # ---------------------------------------------------------------------------
 
-MEMBER_ACTIONS = ("members.read", "members.invite", "members.meter")
+MEMBER_ACTIONS = ("members.read", "members.invite", "members.meter", "members.edit")
 
 
 @pytest.mark.parametrize("action", MEMBER_ACTIONS)
@@ -298,3 +298,51 @@ async def test_members_meter_is_not_granted_to_a_realm_manager_or_another_recs_a
     other_admin = user("other-admin", orgs={"rec-b": rec("/admins")})
     assert await allowed(other_admin, "members.meter", "rec-a") is False
     assert await allowed(other_admin, "members.meter", "rec-b") is True
+
+
+async def test_me_offers_members_edit_only_when_profile_writes_are_configured(monkeypatch) -> None:
+    """Without a registry or the profile write scope every edit would be a 503."""
+    from celine.community.services.recs import accessible_recs
+    from celine.community.settings import settings
+
+    monkeypatch.setattr(settings, "rec_registry_url", "http://registry.internal")
+    monkeypatch.setattr(
+        settings, "rec_registry_profile_write_scope", "rec-registry.members.profile.write"
+    )
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.edit" in recs[0].capabilities
+
+    for url, scope in (
+        ("http://registry.internal", ""),
+        ("http://registry.internal", None),
+        (None, "rec-registry.members.profile.write"),
+    ):
+        monkeypatch.setattr(settings, "rec_registry_url", url)
+        monkeypatch.setattr(settings, "rec_registry_profile_write_scope", scope)
+        recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+        assert "members.edit" not in recs[0].capabilities, (url, scope)
+        assert "members.read" in recs[0].capabilities
+
+
+async def test_members_edit_does_not_follow_the_meter_write_scope(monkeypatch) -> None:
+    """Each write is offered on its own scope: no assets scope, still an edit."""
+    from celine.community.services.recs import accessible_recs
+    from celine.community.settings import settings
+
+    monkeypatch.setattr(settings, "rec_registry_url", "http://registry.internal")
+    monkeypatch.setattr(settings, "rec_registry_assets_write_scope", "")
+    monkeypatch.setattr(
+        settings, "rec_registry_profile_write_scope", "rec-registry.members.profile.write"
+    )
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.edit" in recs[0].capabilities
+    assert "members.meter" not in recs[0].capabilities
+
+
+async def test_members_edit_is_not_granted_to_a_realm_manager_or_another_recs_admin() -> None:
+    """D26: realm `/admins` yes; a realm `/managers` badge or another REC's admins, no."""
+    assert await allowed(user("admin", groups=["/admins"]), "members.edit", "rec-a") is True
+    assert await allowed(user("rm", groups=["/managers"]), "members.edit", "rec-a") is False
+    other_admin = user("other-admin", orgs={"rec-b": rec("/admins")})
+    assert await allowed(other_admin, "members.edit", "rec-a") is False
+    assert await allowed(other_admin, "members.edit", "rec-b") is True

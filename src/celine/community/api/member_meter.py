@@ -23,6 +23,11 @@ it, and the registry's refusal sentence, which may name the asset key and so the
 id, is neither logged nor forwarded. `httpx` logs the registry URL, whose asset
 key carries the id, so its records are redacted below.
 
+**Attach is for active members, detach for every member** (ADR-0004).
+An attach to a member whose registry status is not
+`active` is refused `409 member_not_active` before anything is written; a
+detach is not, so a manager can free a meter a suspended member still holds.
+
 **Every press that reaches the registry writes one audit row** (`community.member.meter.attach` or
 `.detach`, resource `registry_member`, the member key, `{code, status}`), refusals
 included. The "Sent emails" view reads invitation and password-reset rows only,
@@ -31,12 +36,10 @@ so these never appear there.
 
 import logging
 import re
-from dataclasses import dataclass
 from typing import Annotated, Any
 
 import httpx
 from celine.sdk.auth import JwtUser
-from celine.sdk.openapi.rec_registry.errors import UnexpectedStatus
 from celine.sdk.rec_registry import RecRegistryApiError
 from fastapi import APIRouter, HTTPException, Path, Response
 
@@ -46,6 +49,15 @@ from celine.community.api.deps import (
     RegistryAssetsWriterDep,
     RegistryDep,
 )
+from celine.community.api.registry_press import (
+    Outcome,
+    Refused,
+    audit,
+    is_active,
+    log_upstream,
+    read,
+    text,
+)
 from celine.community.api.schemas import (
     MemberMeter,
     MemberMeters,
@@ -54,7 +66,6 @@ from celine.community.api.schemas import (
     MeterDetach,
     MeterType,
 )
-from celine.community.db.models import AuditEvent
 from celine.community.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -105,25 +116,6 @@ for _name in ("httpx", "httpcore"):
 # Outcomes
 # ---------------------------------------------------------------------------
 
-
-class _Refused(Exception):
-    """A press that ends in a refusal: the status and code the manager is told."""
-
-    def __init__(self, status: int, code: str, upstream: int | None) -> None:
-        super().__init__(code)
-        self.status = status
-        self.code = code
-        self.upstream = upstream
-
-
-@dataclass(frozen=True)
-class _Outcome:
-    status: int
-    code: str
-    #: What the registry answered to the last call of the press. None when it did not.
-    upstream: int | None
-
-
 #: Registry codes passed through with the registry's status.
 _PASSED_THROUGH: dict[str, int] = {
     "sensor_held": 409,
@@ -144,61 +136,18 @@ def default_meter_type(role: str | None) -> MeterType:
     return "bidirectional" if (role or "").strip().casefold() == "prosumer" else "consumption"
 
 
-def _text(value: Any) -> str | None:
-    if value is None:
-        return None
-    return str(getattr(value, "value", value))
-
-
-def _not_found(content: bytes | None, fallback: str) -> str:
-    code, _ = RecRegistryApiError.refusal_of(content)
-    return code if code in ("member_not_found", "community_not_found") else fallback
-
-
-async def _read(call, what: str, community_key: str, member_key: str):
-    """One registry read with the default token; a refusal is raised as `_Refused`."""
-    try:
-        response = await call
-    except UnexpectedStatus as exc:
-        # Not `str(exc)`: it carries the registry's body.
-        if exc.status_code == 404:
-            raise _Refused(404, _not_found(exc.content, "member_not_found"), 404) from exc
-        _log_upstream(what, community_key, member_key, exc.status_code, None)
-        if exc.status_code in (401, 403):
-            raise _Refused(502, "registry_refused", exc.status_code) from exc
-        raise _Refused(502, "registry_unavailable", exc.status_code) from exc
-    except Exception as exc:
-        logger.warning(
-            "REC Registry %s unavailable community=%s member=%s error=%s",
-            what,
-            community_key,
-            member_key,
-            type(exc).__name__,
-        )
-        raise _Refused(502, "registry_unavailable", None) from exc
-    parsed = getattr(response, "parsed", None)
-    if parsed is None or response.status_code != 200:
-        _log_upstream(what, community_key, member_key, response.status_code, None)
-        raise _Refused(502, "registry_unavailable", response.status_code)
-    return parsed
-
-
-def _log_upstream(what, community_key, member_key, status, code) -> None:
-    logger.warning(
-        "REC Registry %s refused community=%s member=%s status=%s code=%s",
-        what,
+async def _member(registry, community_key: str, member_key: str) -> Any:
+    return await read(
+        registry.get_member(community_key, member_key),
+        "member",
         community_key,
         member_key,
-        status,
-        code,
+        missing="member_not_found",
     )
 
 
 async def _member_role(registry, community_key: str, member_key: str) -> str | None:
-    member = await _read(
-        registry.get_member(community_key, member_key), "member", community_key, member_key
-    )
-    return _text(getattr(member, "role", None))
+    return text(getattr(await _member(registry, community_key, member_key), "role", None))
 
 
 async def _held_meters(registry, community_key: str, member_key: str) -> list[tuple[str, Any]]:
@@ -206,11 +155,12 @@ async def _held_meters(registry, community_key: str, member_key: str) -> list[tu
     held: list[tuple[str, Any]] = []
     cursor: str | None = None
     while True:
-        page = await _read(
+        page = await read(
             registry.list_meters(community_key, owner=member_key, limit=_PAGE, cursor=cursor),
             "meters",
             community_key,
             member_key,
+            missing="member_not_found",
         )
         for item in getattr(page, "items", None) or []:
             # The registry filters by owner; checked again so a filter it ever
@@ -233,23 +183,23 @@ def _meter_type(item: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _write_refused(exc: Exception, what: str, community_key: str, member_key: str) -> _Refused:
+def _write_refused(exc: Exception, what: str, community_key: str, member_key: str) -> Refused:
     """How a refused registry write reads to the manager."""
     if isinstance(exc, RecRegistryApiError):
         status = exc.status_code
         # `exc.code` and the status only: the sentence may carry the asset key.
-        _log_upstream(what, community_key, member_key, status, exc.code)
+        log_upstream(what, community_key, member_key, status, exc.code)
         if exc.code in _PASSED_THROUGH:
-            return _Refused(_PASSED_THROUGH[exc.code], exc.code, status)
+            return Refused(_PASSED_THROUGH[exc.code], exc.code, status)
         if exc.code == "asset_not_found":
-            return _Refused(404, "meter_not_found", status)
+            return Refused(404, "meter_not_found", status)
         if status in (401, 403):
             # A missing grant is a deployment fault. A 403 here would tell the
             # manager *they* were refused.
-            return _Refused(502, "registry_refused", status)
+            return Refused(502, "registry_refused", status)
         if status == 422:
-            return _Refused(422, exc.code or "meter_rejected", status)
-        return _Refused(502, "registry_unavailable", status)
+            return Refused(422, exc.code or "meter_rejected", status)
+        return Refused(502, "registry_unavailable", status)
     if isinstance(exc, httpx.HTTPStatusError):
         # Only the token provider raises this: Keycloak refusing the write token,
         # most often `invalid_scope` on a realm where svc-community does not hold
@@ -262,7 +212,7 @@ def _write_refused(exc: Exception, what: str, community_key: str, member_key: st
             exc.response.status_code,
             settings.rec_registry_assets_write_scope,
         )
-        return _Refused(502, "registry_refused", None)
+        return Refused(502, "registry_refused", None)
     logger.warning(
         "REC Registry %s unavailable community=%s member=%s error=%s",
         what,
@@ -270,44 +220,19 @@ def _write_refused(exc: Exception, what: str, community_key: str, member_key: st
         member_key,
         type(exc).__name__,
     )
-    return _Refused(502, "registry_unavailable", None)
+    return Refused(502, "registry_unavailable", None)
 
 
 async def _audit(
-    db, community_key: str, member_key: str, actor: JwtUser, press: str, outcome: _Outcome
+    db, community_key: str, member_key: str, actor: JwtUser, press: str, outcome: Outcome
 ) -> None:
     """One row per press. Member key, code and status: never the sensor id."""
     detail = {"code": outcome.code, "status": outcome.upstream}
-    try:
-        db.add(
-            AuditEvent(
-                community_key=community_key,
-                actor_id=actor.sub,
-                action=AUDIT_ACTIONS[press],
-                resource_type="registry_member",
-                resource_id=member_key,
-                detail=detail,
-            )
-        )
-        await db.commit()
-    except Exception:  # noqa: BLE001
-        logger.error(
-            "Audit row NOT written for a meter press: community=%s member=%s action=%s "
-            "actor=%s detail=%s",
-            community_key,
-            member_key,
-            AUDIT_ACTIONS[press],
-            actor.sub,
-            detail,
-        )
-        try:
-            await db.rollback()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Rollback after the failed audit commit failed: %s", type(exc).__name__)
+    await audit(db, community_key, member_key, actor, AUDIT_ACTIONS[press], detail)
 
 
 async def _finish(
-    db, community_key: str, member_key: str, user: JwtUser, press: str, outcome: _Outcome
+    db, community_key: str, member_key: str, user: JwtUser, press: str, outcome: Outcome
 ) -> None:
     await _audit(db, community_key, member_key, user, press, outcome)
     logger.info(
@@ -343,7 +268,7 @@ async def member_meters(
     try:
         role = await _member_role(registry, community_key, member_key)
         held = await _held_meters(registry, community_key, member_key)
-    except _Refused as refused:
+    except Refused as refused:
         raise HTTPException(status_code=refused.status, detail={"code": refused.code}) from None
     return MemberMeters(
         member_key=member_key,
@@ -381,7 +306,9 @@ async def attach_meter(
     member, in any REC, holds it; no member or REC is named), `409
     asset_key_taken` (another member holds the key, or this member holds
     `meter-<id>` for a different sensor id, which is not replaced), `404
-    member_not_found`, `422 sensor_id_blank`, `422 asset_key_too_long` (not
+    member_not_found`, `409 member_not_active` (the member's status is not
+    `active`; checked after the member is read, before anything is written),
+    `422 sensor_id_blank`, `422 asset_key_too_long` (not
     expected: the id is capped at 122 characters), `502 registry_unavailable`,
     `502 registry_refused`.
     """
@@ -392,12 +319,16 @@ async def attach_meter(
 
     meter_type: str = body.meter_type or "consumption"
     try:
-        role = await _member_role(registry, community_key, member_key)
+        found = await _member(registry, community_key, member_key)
+        if not is_active(found):
+            # ADR-0004: attach is for active members only; nothing is read or written further.
+            raise Refused(409, "member_not_active", 200)
+        role = text(getattr(found, "role", None))
         held = await _held_meters(registry, community_key, member_key)
         existing = next((item for _, item in held if _sensor(item) == sensor_id), None)
         if existing is not None:
             meter_type = _meter_type(existing) or body.meter_type or default_meter_type(role)
-            outcome = _Outcome(200, "already_attached", 200)
+            outcome = Outcome(200, "already_attached", 200)
         else:
             meter_type = body.meter_type or default_meter_type(role)
             asset_key = f"meter-{sensor_id}"
@@ -405,7 +336,7 @@ async def attach_meter(
                 # The member already holds this key for another sensor id (imported
                 # data that breaks the convention). The PUT would silently replace that
                 # meter, so the press is refused and nothing is written.
-                raise _Refused(409, "asset_key_taken", 200)
+                raise Refused(409, "asset_key_taken", 200)
             payload = {
                 "key": asset_key,
                 "asset_type": "meter",
@@ -416,9 +347,9 @@ async def attach_meter(
                 await writer.put_asset(community_key, member_key, asset_key, payload)
             except Exception as exc:  # noqa: BLE001
                 raise _write_refused(exc, "meter attach", community_key, member_key) from None
-            outcome = _Outcome(201, "attached", 200)
-    except _Refused as refused:
-        outcome = _Outcome(refused.status, refused.code, refused.upstream)
+            outcome = Outcome(201, "attached", 200)
+    except Refused as refused:
+        outcome = Outcome(refused.status, refused.code, refused.upstream)
 
     await _finish(db, community_key, member_key, user, "attach", outcome)
     response.status_code = outcome.status
@@ -437,6 +368,8 @@ async def detach_meter(
 ) -> Response:
     """Detach the member's meter with this sensor id: a hard delete of that one asset.
 
+    Open for every member whatever their status (ADR-0004), so a manager can free a
+    meter held by a suspended or inactive member.
     The member's other meters are untouched. The sensor id is in the body, so it
     never reaches an access log. `204` when detached. `404 meter_not_found` when
     the member holds no meter with that id, `404 member_not_found`, `422
@@ -451,14 +384,14 @@ async def detach_meter(
         held = await _held_meters(registry, community_key, member_key)
         asset_key = next((key for key, item in held if _sensor(item) == sensor_id), None)
         if asset_key is None:
-            raise _Refused(404, "meter_not_found", 200)
+            raise Refused(404, "meter_not_found", 200)
         try:
             await writer.delete_asset(community_key, member_key, asset_key)
         except Exception as exc:  # noqa: BLE001
             raise _write_refused(exc, "meter detach", community_key, member_key) from None
-        outcome = _Outcome(204, "detached", 204)
-    except _Refused as refused:
-        outcome = _Outcome(refused.status, refused.code, refused.upstream)
+        outcome = Outcome(204, "detached", 204)
+    except Refused as refused:
+        outcome = Outcome(refused.status, refused.code, refused.upstream)
 
     await _finish(db, community_key, member_key, user, "detach", outcome)
     return Response(status_code=204)

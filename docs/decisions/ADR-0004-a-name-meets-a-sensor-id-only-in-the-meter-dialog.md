@@ -9,8 +9,9 @@ in ADR-0002 stands. The writes themselves are
 [ADR-0003](ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md).
 
 The members list's meter flag, the meter routes, `members.meter` and the dashboard's meter dialog
-(celine-frontend `apps/community`) are implemented; `members.edit` is not yet. [`../acceptance.md`](../acceptance.md) lists what
-is pending.
+(celine-frontend `apps/community`) are implemented, and so are `members.edit`, its BFF route and
+the dashboard's edit dialog.
+[`../acceptance.md`](../acceptance.md) lists what is pending.
 
 ## Context
 
@@ -49,6 +50,14 @@ They are granted to the same groups as `members.read`: the REC organization's `a
 Neither has a service scope, and the `community.admin` override does not reach them, so a service
 token never attaches a meter or edits a profile. `GET /api/me` reports them only when the REC registry is
 configured, so a dashboard without one offers no meter or edit action.
+
+**Attach and edit are for active members; detach is for every member** (requester, 2026-09-28,
+amending the earlier "meter action only for active members"), so a manager can free a meter a
+suspended or inactive member still holds. The dashboard offers detach for every member, and attach
+and the role/area edit only for `active` ones. The BFF
+enforces the same: an attach or an edit for a member whose registry status is not `active` is
+refused `409 member_not_active` after the member is read and before any write token is asked for.
+The members list already carries each member's `status`, which is what the dashboard decides from.
 
 ## Consequences
 
