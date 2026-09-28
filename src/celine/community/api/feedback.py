@@ -12,6 +12,7 @@ from celine.community.api.deps import (
     CommunityReadDep,
     ConsoleUserDep,
     DbDep,
+    RoiFeedbackDep,
     UserFeedbackDep,
 )
 from celine.community.api.schemas import (
@@ -287,6 +288,61 @@ async def update_user_feedback_status(
     body: FeedbackStatusUpdate,
     user: CommunityReadDep,
     upstream: UserFeedbackDep,
+) -> FeedbackItemResponse:
+    try:
+        return await upstream.update_status(community_key, feedback_id, body.status)
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
+
+
+@router.get(
+    "/api/communities/{community_key}/roi-feedback",
+    response_model=FeedbackListResponse,
+)
+async def list_roi_feedback(
+    community_key: str,
+    user: CommunityReadDep,
+    upstream: RoiFeedbackDep,
+    status: FeedbackState | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, alias="pageSize", ge=1, le=100),
+) -> FeedbackListResponse:
+    """List ROI-dashboard feedback after the manager BFF authorizes this REC."""
+    try:
+        return await upstream.list(
+            community_key,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
+
+
+@router.get("/api/communities/{community_key}/roi-feedback/{feedback_id}/screenshot")
+async def roi_feedback_screenshot(
+    community_key: str,
+    feedback_id: UUID,
+    user: CommunityReadDep,
+    upstream: RoiFeedbackDep,
+) -> Response:
+    try:
+        screenshot = await upstream.screenshot(community_key, feedback_id)
+    except UserFeedbackError as exc:
+        raise _upstream_error(exc) from exc
+    return Response(content=screenshot.content, media_type=screenshot.media_type)
+
+
+@router.patch(
+    "/api/communities/{community_key}/roi-feedback/{feedback_id}",
+    response_model=FeedbackItemResponse,
+)
+async def update_roi_feedback_status(
+    community_key: str,
+    feedback_id: UUID,
+    body: FeedbackStatusUpdate,
+    user: CommunityReadDep,
+    upstream: RoiFeedbackDep,
 ) -> FeedbackItemResponse:
     try:
         return await upstream.update_status(community_key, feedback_id, body.status)

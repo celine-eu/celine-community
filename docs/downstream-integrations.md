@@ -96,6 +96,12 @@ onboarding refuses on these routes. There is no cache and no retry: sending agai
 decision. The sends view resolves names for its page of rows from the same registry
 `list_members` call, reading at most ten pages of 500.
 
+Feedback from other browser applications remains in its owning service. The manager BFF proxies
+participant feedback to `WEBAPP_API_URL` and ROI-calculator feedback to `ROI_API_URL`, always after
+`CommunityReadDep` has authorized the requested REC. It forwards the browser's verified token, and
+uses the same list, screenshot and monotonic status contract for both sources. No feedback table is
+read across a service database boundary.
+
 `rec_pipeline_status`, `rec_anti_gaming_flags_community`, and the
 notification-event portion of the flexibility chain are not yet available. These gaps remain
 visible as partial data. The BFF alert workflow is real and persistent, but its production alert
