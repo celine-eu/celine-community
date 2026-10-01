@@ -86,7 +86,7 @@ def real_registry_client():
             app.dependency_overrides[get_registry_client] = previous
 
 
-def test_only_the_six_fields_a_manager_needs_leave_the_bff(real_registry_client) -> None:
+def test_only_the_seven_fields_a_manager_needs_leave_the_bff(real_registry_client) -> None:
     real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=PAGE))
     real_registry_client.get(METERS_URL).mock(
         return_value=httpx.Response(200, json={"items": [meter("EX-00001")], "next_cursor": None})
@@ -98,10 +98,53 @@ def test_only_the_six_fields_a_manager_needs_leave_the_bff(real_registry_client)
     body = response.json()
     assert body["communityKey"] == REC
     for member in body["items"]:
-        assert set(member) == {"key", "name", "role", "status", "area", "hasMeter"}
+        assert set(member) == {
+            "key",
+            "name",
+            "role",
+            "status",
+            "area",
+            "hasMeter",
+            "hasDeliveryPoint",
+        }
     # Not merely absent as keys: the values appear nowhere in the payload.
     for value in ("@example.org", "did:web", "id-EX-00001", SENSOR, "meter-"):
         assert value not in response.text, value
+
+
+# ---------------------------------------------------------------------------
+# The delivery point flag: yes or no, never which POD (ADR-0005)
+# ---------------------------------------------------------------------------
+
+
+def test_the_list_says_who_has_a_delivery_point_and_never_which(real_registry_client) -> None:
+    page = {
+        "items": [
+            item("EX-00001", "Anna Rossi", delivery_points_count=1),
+            item("EX-00002", "Luca Verdi", delivery_points_count=0),
+            # A registry that leaves the count out reads as unknown, not as "no".
+            {
+                key: value
+                for key, value in item("EX-00003", "Sara Neri").items()
+                if key != "delivery_points_count"
+            },
+        ],
+        "next_cursor": None,
+    }
+    real_registry_client.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=page))
+    real_registry_client.get(METERS_URL).mock(
+        return_value=httpx.Response(200, json={"items": [], "next_cursor": None})
+    )
+
+    response = client.get(f"/api/communities/{REC}/members")
+
+    assert response.status_code == 200
+    by_key = {m["key"]: m["hasDeliveryPoint"] for m in response.json()["items"]}
+    assert by_key["EX-00001"] is True
+    assert by_key["EX-00002"] is False
+    # The SDK's model defaults an absent count to 0; whatever it parses, never a POD id.
+    assert by_key["EX-00003"] in (False, None)
+    assert "IT001E" not in response.text
 
 
 # ---------------------------------------------------------------------------

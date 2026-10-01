@@ -4,10 +4,14 @@ Names are read from the REC registry on every request and never kept: no databas
 write, no cache, and no name in a log line, which names the member key instead.
 Requester, 2026-09-14 (A1): "needed or the manager won't be able to use it".
 
-Only `key`, `name`, `role`, `status`, `area` and `hasMeter` leave this module. The
-registry's list item also carries `user_id` (often the member's email address),
-`did` and a delivery point count, and none of them is needed to find a person and
-press a button.
+Only `key`, `name`, `role`, `status`, `area`, `hasMeter` and `hasDeliveryPoint`
+leave this module. The registry's list item also carries `user_id` (often the
+member's email address) and `did`, and neither is needed to find a person and press
+a button.
+
+`hasDeliveryPoint` is yes or no, never which delivery point (ADR-0005): it is the
+registry's delivery point count, greater than zero. The POD itself appears only in
+the measurements dialog (`member_meter`).
 
 `hasMeter` is yes or no, never which meter (ADR-0004). It comes from the
 community's meter list, of which only the owner keys are kept: the sensor ids are
@@ -89,6 +93,14 @@ async def meter_holders(registry, community_key: str) -> set[str] | None:
     return None
 
 
+def has_delivery_point(item) -> bool | None:
+    """Whether the registry counts a delivery point for the member; None when it says nothing."""
+    count = getattr(item, "delivery_points_count", None)
+    if isinstance(count, bool) or not isinstance(count, int):
+        return None
+    return count > 0
+
+
 def _matches(member: MemberSummary, needle: str) -> bool:
     return needle in member.key.casefold() or (
         member.name is not None and needle in member.name.casefold()
@@ -156,6 +168,7 @@ async def members(
             status=item.status,
             area=item.area,
             has_meter=None if holders is None else item.key in holders,
+            has_delivery_point=has_delivery_point(item),
         )
         for item in items
     ]

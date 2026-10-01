@@ -34,11 +34,16 @@ the count enters the response.
 
 The members list reads REC Registry `GET /admin/communities/{community_key}/members` (`list_members`,
 `rec-registry.read`) once per request, one page, with the registry's own cursor. Only `key`, `name`,
-`role`, `status` and `area` enter the response; `user_id`, `did` and the delivery point count are
-dropped in the BFF. Nothing is cached, because a name must not outlive the request. The meter flag
+`role`, `status` and `area` enter the response, and the delivery point count as a yes/no
+`hasDeliveryPoint`; `user_id` and `did` are dropped in the BFF. Nothing is cached, because a name must not outlive the request. The meter flag
 comes from `GET /admin/communities/{community_key}/meters` (`list_meters`, `rec-registry.read`),
 at most ten pages of 500, of which only `owner_key` is kept. When it does not answer, the flag is
 `null` and the list is still served.
+
+The measurements dialog's read takes the member's `delivery_points` (`id` and `active` only) from
+`get_member`, and each meter's `pod` from `list_meters?owner=`. A meter attach with a `pod` checks it
+against those `delivery_points` (trimmed, case-insensitive) and writes the registry's spelling to
+`properties.pod`; no registry route, scope or SDK call is added for it.
 
 A meter attach or detach reads the member (`get_member`) and that member's meters
 (`list_meters?owner=`) with the default token, then writes with a token from a second

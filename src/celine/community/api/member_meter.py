@@ -1,4 +1,8 @@
-"""A manager attaches or detaches a member's meter (ADR-0003, ADR-0004).
+"""A manager reviews a member's measurements, and attaches or detaches their meter.
+
+ADR-0003, ADR-0004, ADR-0005. The route is still `…/meter`; the dashboard calls the
+dialog "measurements": the member's delivery points (POD, the DSO's connection) and
+their meters (a REC- or member-provided device, optional).
 
     dashboard ─▶ these routes ─▶ REC registry
 
@@ -13,13 +17,18 @@ code reaches the dashboard unchanged (`sensor_held`, `asset_key_taken`). Whether
 the caller may press on this REC is `members.meter` in `policies/community.rego`.
 No cache and no retry: pressing again is the manager's decision.
 
+**A delivery point is read here, never written** (ADR-0005). The dialog shows the
+member's delivery point ids, from the registry member detail, read-only: a POD is
+set and corrected through onboarding. An attach may link the meter to one of them
+(`properties.pod`), and only to one the member holds (`422 pod_not_held`).
+
 **The sensor id is typed, never offered.** Nothing here reads meter data to
 suggest one: the only meters read are those of the one member the dialog is open
 for.
 
-**A name meets a sensor id only in the dialog.** The id travels in request and
-response bodies, never in this BFF's paths. No log line and no audit row holds
-it, and the registry's refusal sentence, which may name the asset key and so the
+**A name meets a sensor id or a POD only in the dialog.** Both travel in request
+and response bodies, never in this BFF's paths. No log line and no audit row holds
+either, and the registry's refusal sentence, which may name the asset key and so the
 id, is neither logged nor forwarded. `httpx` logs the registry URL, whose asset
 key carries the id, so its records are redacted below.
 
@@ -59,6 +68,7 @@ from celine.community.api.registry_press import (
     text,
 )
 from celine.community.api.schemas import (
+    MemberDeliveryPoint,
     MemberMeter,
     MemberMeters,
     MeterAttach,
@@ -183,6 +193,45 @@ def _meter_type(item: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _pod(item: Any) -> str | None:
+    """The delivery point a meter is linked to, as the registry has it."""
+    value = getattr(item, "pod", None)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _delivery_points(member: Any) -> list[MemberDeliveryPoint]:
+    """The member's delivery points: the id as the registry has it, and whether active.
+
+    Nothing else of a delivery point leaves this function: no address, tariff or
+    description.
+    """
+    points = getattr(member, "delivery_points", None)
+    if not isinstance(points, list):
+        return []
+    shown: list[MemberDeliveryPoint] = []
+    for point in points:
+        point_id = getattr(point, "id", None)
+        if not isinstance(point_id, str) or not point_id.strip():
+            continue
+        active = getattr(point, "active", True)
+        shown.append(MemberDeliveryPoint(id=point_id, active=active is not False))
+    return shown
+
+
+def _pod_key(value: str) -> str:
+    """How a POD is compared: trimmed and case-insensitive, as the registry relinks."""
+    return value.strip().casefold()
+
+
+def held_pod(member: Any, pod: str) -> str | None:
+    """The registry's own spelling of *pod* when the member holds it, else None."""
+    wanted = _pod_key(pod)
+    return next(
+        (point.id for point in _delivery_points(member) if _pod_key(point.id) == wanted),
+        None,
+    )
+
+
 def _write_refused(exc: Exception, what: str, community_key: str, member_key: str) -> Refused:
     """How a refused registry write reads to the manager."""
     if isinstance(exc, RecRegistryApiError):
@@ -226,7 +275,7 @@ def _write_refused(exc: Exception, what: str, community_key: str, member_key: st
 async def _audit(
     db, community_key: str, member_key: str, actor: JwtUser, press: str, outcome: Outcome
 ) -> None:
-    """One row per press. Member key, code and status: never the sensor id."""
+    """One row per press. Member key, code and status: never the sensor id or a POD."""
     detail = {"code": outcome.code, "status": outcome.upstream}
     await audit(db, community_key, member_key, actor, AUDIT_ACTIONS[press], detail)
 
@@ -260,21 +309,24 @@ async def member_meters(
     user: MembersMeterDep,
     registry: RegistryDep,
 ) -> MemberMeters:
-    """The meters of the one member the dialog is open for, with the type an attach defaults to.
+    """The measurements of the one member the dialog is open for (ADR-0005).
 
-    Nothing else: no other member's meter and no candidate list. `404
-    member_not_found` when the member is not in this REC.
+    Their delivery points (id and whether active, read-only), their meters (sensor
+    id, type and linked POD), and the type an attach defaults to. Nothing else: no
+    other member's meter or POD, and no candidate list. Read for every member,
+    whatever their status. `404 member_not_found` when the member is not in this REC.
     """
     try:
-        role = await _member_role(registry, community_key, member_key)
+        found = await _member(registry, community_key, member_key)
         held = await _held_meters(registry, community_key, member_key)
     except Refused as refused:
         raise HTTPException(status_code=refused.status, detail={"code": refused.code}) from None
     return MemberMeters(
         member_key=member_key,
-        default_meter_type=default_meter_type(role),
+        default_meter_type=default_meter_type(text(getattr(found, "role", None))),
+        delivery_points=_delivery_points(found),
         meters=[
-            MemberMeter(sensor_id=sensor, meter_type=_meter_type(item))
+            MemberMeter(sensor_id=sensor, meter_type=_meter_type(item), pod=_pod(item))
             for _, item in held
             if (sensor := _sensor(item)) is not None
         ],
@@ -301,14 +353,18 @@ async def attach_meter(
 
     `201 attached`, written at `meter-<trimmed id>`. `200 already_attached` when
     the member already holds a meter with that id: nothing is written, and the
-    answer carries the type it has. Changing a held meter's type is a detach and an
-    attach. Refusals are `{"detail": {"code"}}`: `409 sensor_held` (another active
+    answer carries the type it has. Changing a held meter's type or linked POD is a
+    detach and an attach. With `pod`, the meter is linked to that delivery point:
+    `properties.pod` holds the registry's own spelling of the id; without, no `pod`
+    is written. Refusals are `{"detail": {"code"}}`: `409 sensor_held` (another active
     member, in any REC, holds it; no member or REC is named), `409
     asset_key_taken` (another member holds the key, or this member holds
     `meter-<id>` for a different sensor id, which is not replaced), `404
     member_not_found`, `409 member_not_active` (the member's status is not
     `active`; checked after the member is read, before anything is written),
-    `422 sensor_id_blank`, `422 asset_key_too_long` (not
+    `422 pod_not_held` (a `pod` was sent that is not one of the member's delivery
+    points, compared trimmed and case-insensitively; checked after the member is
+    read, before anything is written), `422 sensor_id_blank`, `422 asset_key_too_long` (not
     expected: the id is capped at 122 characters), `502 registry_unavailable`,
     `502 registry_refused`.
     """
@@ -318,11 +374,19 @@ async def attach_meter(
         raise HTTPException(status_code=422, detail={"code": "sensor_id_blank"})
 
     meter_type: str = body.meter_type or "consumption"
+    wanted_pod = body.pod if body.pod and body.pod.strip() else None
     try:
         found = await _member(registry, community_key, member_key)
         if not is_active(found):
             # ADR-0004: attach is for active members only; nothing is read or written further.
             raise Refused(409, "member_not_active", 200)
+        pod: str | None = None
+        if wanted_pod is not None:
+            # ADR-0005 (M6): only a delivery point the member holds, stored as the
+            # registry spells it, so the registry's relink compares like with like.
+            pod = held_pod(found, wanted_pod)
+            if pod is None:
+                raise Refused(422, "pod_not_held", 200)
         role = text(getattr(found, "role", None))
         held = await _held_meters(registry, community_key, member_key)
         existing = next((item for _, item in held if _sensor(item) == sensor_id), None)
@@ -337,11 +401,14 @@ async def attach_meter(
                 # data that breaks the convention). The PUT would silently replace that
                 # meter, so the press is refused and nothing is written.
                 raise Refused(409, "asset_key_taken", 200)
+            properties = {"name": "Meter", "sensor_id": sensor_id, "meter_type": meter_type}
+            if pod is not None:
+                properties["pod"] = pod
             payload = {
                 "key": asset_key,
                 "asset_type": "meter",
                 # The asset's name is not the member's: no personal data here.
-                "properties": {"name": "Meter", "sensor_id": sensor_id, "meter_type": meter_type},
+                "properties": properties,
             }
             try:
                 await writer.put_asset(community_key, member_key, asset_key, payload)

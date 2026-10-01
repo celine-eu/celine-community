@@ -585,9 +585,9 @@ class AlertAssignRequest(ApiModel):
 class MemberSummary(ApiModel):
     """A registry member, as far as a manager needs to find them and press a button.
 
-    Deliberately not `user_id`, `did`, delivery points or any address: the
-    registry's list item carries the first three, and `user_id` is often the
-    member's email.
+    Deliberately not `user_id`, `did`, a delivery point id or any address: the
+    registry's list item carries the first two and a delivery point count, and
+    `user_id` is often the member's email.
     """
 
     key: str
@@ -600,6 +600,10 @@ class MemberSummary(ApiModel):
     #: Whether the member holds a meter in the registry: yes or no, never which
     #: one (ADR-0004). None when the registry's meter list did not answer.
     has_meter: bool | None = None
+    #: Whether the registry records a delivery point (POD) for the member: yes or
+    #: no, never which one (ADR-0005). None when the registry's list item carries
+    #: no count.
+    has_delivery_point: bool | None = None
 
 
 class MembersResponse(ApiModel):
@@ -617,11 +621,21 @@ MeterType = Literal["consumption", "production", "bidirectional", "import", "exp
 SENSOR_ID_MAX_LENGTH = 128 - len("meter-")
 
 
+#: The longest delivery point id an attach may link a meter to. The registry sets no
+#: limit; a POD, CUPS or PRM is a few dozen characters at most.
+POD_MAX_LENGTH = 255
+
+
 class MeterAttach(ApiModel):
     """What a manager types to attach a meter: the sensor id, free text (ADR-0004).
 
     The id is trimmed here and again by the registry. `meter_type` defaults from the
     member's role: `bidirectional` for a `prosumer`, `consumption` otherwise.
+
+    `pod` optionally links the meter to one of the member's delivery points
+    (ADR-0005). It must be one the member holds in the registry, compared trimmed
+    and case-insensitively, else `422 pod_not_held`; the registry's own spelling is
+    what is written. Absent, `null` or blank links none.
 
     At most 122 characters, so that the asset key `meter-<id>` fits the 128 characters
     the registry's key holds. A detach takes up to 255: an imported meter may carry a
@@ -630,6 +644,7 @@ class MeterAttach(ApiModel):
 
     sensor_id: str = Field(min_length=1, max_length=SENSOR_ID_MAX_LENGTH)
     meter_type: MeterType | None = None
+    pod: str | None = Field(default=None, max_length=POD_MAX_LENGTH)
 
 
 class MeterDetach(ApiModel):
@@ -641,14 +656,33 @@ class MeterDetach(ApiModel):
 class MemberMeter(ApiModel):
     sensor_id: str
     meter_type: str | None = None
+    #: The delivery point the meter is linked to (`properties.pod`), as the registry
+    #: has it; None when it is linked to none.
+    pod: str | None = None
+
+
+class MemberDeliveryPoint(ApiModel):
+    """One of the member's delivery points (POD), read-only (ADR-0005).
+
+    The id exactly as the registry has it. Nothing else of the delivery point (no
+    address, tariff or description) leaves the BFF.
+    """
+
+    id: str
+    active: bool
 
 
 class MemberMeters(ApiModel):
-    """The meters of the one member the dialog is open for, and nothing else."""
+    """The measurements of the one member the dialog is open for, and nothing else.
+
+    Their delivery points (read-only: a POD is set and corrected through onboarding)
+    and their meters (ADR-0004, ADR-0005).
+    """
 
     member_key: str
     #: What an attach sends when the manager picks no type: from the member's role.
     default_meter_type: MeterType
+    delivery_points: list[MemberDeliveryPoint]
     meters: list[MemberMeter]
 
 

@@ -54,7 +54,11 @@ asset to the REC registry directly, with a token asked for `rec-registry.assets.
 alone ([ADR-0003](decisions/ADR-0003-the-bff-writes-meter-role-and-area-to-the-registry-directly.md)).
 A name meets a sensor id only in the meter dialog: the members list carries a yes/no meter flag, and
 no audit row or log line holds a sensor id
-([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)).
+([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md)). The same
+dialog, called "measurements", shows the member's delivery points (POD) read-only, and an attach may
+link the meter to one the member holds; the list carries a yes/no delivery point flag, and no audit
+row or log line holds a POD. The BFF never writes a delivery point: onboarding owns it
+([ADR-0005](decisions/ADR-0005-a-manager-reads-a-members-delivery-point-in-the-measurements-dialog-only.md)).
 `members.meter` is reported by `GET /api/me` only when the registry URL and the write scope are
 configured.
 

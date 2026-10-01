@@ -51,6 +51,13 @@ and Digital Twin URL, then verify:
   registry is asked;
 - `DELETE …/members/{member_key}/meter` with that id removes the meter, and the list answers
   `hasMeter: false` again;
+- `GET …/members` carries `hasDeliveryPoint`, yes or no, and never a POD; `GET …/meter` for a member
+  approved through onboarding answers their POD in `deliveryPoints` and `meters: []`, for every
+  status, and no audit row or log line holds the POD
+  ([ADR-0005](decisions/ADR-0005-a-manager-reads-a-members-delivery-point-in-the-measurements-dialog-only.md));
+- `PUT …/meter` with a `pod` the member holds (any case, surrounding spaces) writes the registry's
+  spelling to `properties.pod`, and `GET …/meter` then shows it as the meter's `pod`; without `pod`
+  none is written; another member's POD answers `422 pod_not_held` and writes nothing;
 - for a member whose registry status is `pending`, `suspended` or `inactive`, `PUT …/meter` and
   `PATCH …/members/{member_key}` answer `409 member_not_active` and write nothing (no write token is
   requested), while `DELETE …/meter` still detaches their meter; the members list carries each

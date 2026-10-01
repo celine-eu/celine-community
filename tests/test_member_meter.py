@@ -31,6 +31,9 @@ TOKEN_URL = "http://keycloak.test/token"
 REC = "example_rec"
 MEMBER = "EX-00001"
 SENSOR = "SEN-4471-0093"
+# Placeholder delivery points, never real ones.
+POD = "IT001E00000001"
+OTHER_POD = "IT001E00000002"
 MEMBER_URL = f"{REGISTRY}/admin/communities/{REC}/members/{MEMBER}"
 METERS_URL = f"{REGISTRY}/admin/communities/{REC}/meters"
 ASSET_URL = f"{MEMBER_URL}/assets/meter-{SENSOR}"
@@ -107,7 +110,23 @@ def downstream(monkeypatch, session):
         yield router
 
 
-def member(role: str = "consumer", key: str = MEMBER, status: str = "active") -> dict:
+def delivery_point(pod: str = POD, *, active: bool = True) -> dict:
+    return {
+        "id": pod,
+        "type": "pod",
+        "active": active,
+        "address": "Via Esempio 1, Example Town",
+        "tariff": "D2",
+        "description": "home",
+    }
+
+
+def member(
+    role: str = "consumer",
+    key: str = MEMBER,
+    status: str = "active",
+    delivery_points: list | None = None,
+) -> dict:
     return {
         "id": f"id-{key}",
         "key": key,
@@ -116,6 +135,7 @@ def member(role: str = "consumer", key: str = MEMBER, status: str = "active") ->
         "status": status,
         "area": "north",
         "user_id": "anna@example.org",
+        "delivery_points": delivery_points or [],
     }
 
 
@@ -152,11 +172,18 @@ def stored(sensor_id: str = SENSOR, meter_type: str = "consumption") -> dict:
 
 
 def registry(
-    downstream, *, role: str = "consumer", held: list | None = None, status: str = "active"
+    downstream,
+    *,
+    role: str = "consumer",
+    held: list | None = None,
+    status: str = "active",
+    delivery_points: list | None = None,
 ):
     """The two reads every press makes: the member, and the meters they hold."""
     downstream.get(MEMBER_URL, name="member").mock(
-        return_value=httpx.Response(200, json=member(role, status=status))
+        return_value=httpx.Response(
+            200, json=member(role, status=status, delivery_points=delivery_points)
+        )
     )
     downstream.get(METERS_URL, name="meters").mock(
         return_value=httpx.Response(200, json={"items": held or [], "next_cursor": None})
@@ -628,6 +655,79 @@ def test_a_registry_outage_on_detach_is_a_502(downstream) -> None:
 
 
 # ---------------------------------------------------------------------------
+# The meter's delivery point (M5, M6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sent", [POD, f"  {POD.lower()} ", POD.lower()])
+def test_an_attach_with_a_held_pod_writes_the_registrys_spelling(downstream, sent) -> None:
+    registry(downstream, delivery_points=[delivery_point(OTHER_POD), delivery_point()])
+    put = downstream.put(ASSET_URL).mock(return_value=httpx.Response(200, json=stored()))
+
+    response = attach(pod=sent)
+
+    assert response.status_code == 201
+    assert json.loads(put.calls.last.request.read())["properties"] == {
+        "name": "Meter",
+        "sensor_id": SENSOR,
+        "meter_type": "consumption",
+        "pod": POD,
+    }
+
+
+@pytest.mark.parametrize("body", [{}, {"pod": None}, {"pod": "   "}])
+def test_an_attach_without_a_pod_writes_none(downstream, body) -> None:
+    registry(downstream, delivery_points=[delivery_point()])
+    put = downstream.put(ASSET_URL).mock(return_value=httpx.Response(200, json=stored()))
+
+    assert attach(**body).status_code == 201
+
+    assert "pod" not in json.loads(put.calls.last.request.read())["properties"]
+
+
+@pytest.mark.parametrize("delivery_points", [[], [delivery_point()]])
+def test_a_pod_the_member_does_not_hold_is_refused_and_nothing_is_written(
+    downstream, session, caplog, delivery_points
+) -> None:
+    """Another member's POD, or any POD for a member who has none: `422 pod_not_held`."""
+    registry(downstream, delivery_points=delivery_points)
+    put = downstream.put(ASSET_URL).mock(return_value=httpx.Response(200, json=stored()))
+
+    with caplog.at_level(logging.DEBUG):
+        response = attach(pod=OTHER_POD)
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": {"code": "pod_not_held"}}
+    assert not put.called
+    assert token_scopes(downstream) == ["rec-registry.read"]
+    [row] = session.audit_rows()
+    assert row.action == "community.member.meter.attach"
+    assert row.detail == {"code": "pod_not_held", "status": 200}
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    for value in (OTHER_POD, POD, SENSOR):
+        assert value not in logged, value
+        assert value not in json.dumps([row.resource_id, row.detail]), value
+
+
+def test_a_pod_is_checked_only_for_an_active_member(downstream) -> None:
+    registry(downstream, status="suspended")
+
+    response = attach(pod=OTHER_POD)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": {"code": "member_not_active"}}
+
+
+def test_a_pod_longer_than_255_characters_is_refused_before_the_registry(downstream) -> None:
+    registry(downstream)
+
+    response = attach(pod="P" * 256)
+
+    assert response.status_code == 422
+    assert not downstream.routes["member"].called
+
+
+# ---------------------------------------------------------------------------
 # The dialog's read
 # ---------------------------------------------------------------------------
 
@@ -649,9 +749,72 @@ def test_the_dialog_shows_that_members_meters_and_the_default_type(downstream) -
     assert response.json() == {
         "memberKey": MEMBER,
         "defaultMeterType": "bidirectional",
-        "meters": [{"sensorId": SENSOR, "meterType": "bidirectional"}],
+        "deliveryPoints": [],
+        "meters": [{"sensorId": SENSOR, "meterType": "bidirectional", "pod": None}],
     }
     assert downstream.routes["meters"].calls.last.request.url.params["owner"] == MEMBER
+
+
+def test_a_member_with_a_pod_and_no_meter_shows_the_pod_alone(downstream) -> None:
+    """The normal case after onboarding (M3): a delivery point, no meter."""
+    registry(downstream, delivery_points=[delivery_point()])
+
+    response = client.get(METER_PATH)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "memberKey": MEMBER,
+        "defaultMeterType": "consumption",
+        "deliveryPoints": [{"id": POD, "active": True}],
+        "meters": [],
+    }
+    # Only the id and whether active: no address, tariff or description.
+    for value in ("Via Esempio", "Example Town", "D2", "home"):
+        assert value not in response.text, value
+
+
+def test_the_pods_are_shown_as_the_registry_spells_them_and_meters_carry_their_link(
+    downstream,
+) -> None:
+    registry(
+        downstream,
+        delivery_points=[delivery_point("it001e00000001 "), delivery_point(active=False)],
+        held=[meter(pod=POD), meter("SEN-NO-POD", key="meter-SEN-NO-POD")],
+    )
+
+    body = client.get(METER_PATH).json()
+
+    assert body["deliveryPoints"] == [
+        {"id": "it001e00000001 ", "active": True},
+        {"id": POD, "active": False},
+    ]
+    assert body["meters"] == [
+        {"sensorId": SENSOR, "meterType": "consumption", "pod": POD},
+        {"sensorId": "SEN-NO-POD", "meterType": "consumption", "pod": None},
+    ]
+
+
+@pytest.mark.parametrize("status", ["pending", "suspended", "inactive"])
+def test_a_member_who_is_not_active_is_reviewed_all_the_same(downstream, status) -> None:
+    registry(downstream, status=status, delivery_points=[delivery_point()], held=[meter()])
+
+    response = client.get(METER_PATH)
+
+    assert response.status_code == 200
+    assert response.json()["deliveryPoints"] == [{"id": POD, "active": True}]
+    assert [m["sensorId"] for m in response.json()["meters"]] == [SENSOR]
+
+
+def test_the_dialogs_read_logs_no_pod_and_writes_no_row(downstream, session, caplog) -> None:
+    registry(downstream, delivery_points=[delivery_point()], held=[meter(pod=POD)])
+
+    with caplog.at_level(logging.DEBUG):
+        assert client.get(METER_PATH).status_code == 200
+
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert POD not in logged
+    assert SENSOR not in logged
+    assert session.added == []
 
 
 def test_the_dialog_for_a_member_not_in_this_rec_is_404(downstream) -> None:
@@ -736,7 +899,7 @@ def test_a_realm_admin_may_attach_on_any_rec(downstream) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The audit row and the log: never the sensor id
+# The audit row and the log: never the sensor id, never a POD
 # ---------------------------------------------------------------------------
 
 
@@ -753,14 +916,18 @@ def test_a_realm_admin_may_attach_on_any_rec(downstream) -> None:
 def test_one_row_per_press_and_no_sensor_id_in_it_or_the_log(
     downstream, session, caplog, press, put_answer, code, status
 ) -> None:
-    registry(downstream, held=[meter()] if press == "detach" else [])
+    registry(
+        downstream,
+        held=[meter(pod=POD)] if press == "detach" else [],
+        delivery_points=[delivery_point()],
+    )
     if press == "attach":
         downstream.put(ASSET_URL).mock(return_value=put_answer)
     else:
         downstream.delete(ASSET_URL).mock(return_value=put_answer)
 
     with caplog.at_level(logging.DEBUG):
-        attach() if press == "attach" else detach()
+        attach(pod=POD) if press == "attach" else detach()
 
     [row] = session.audit_rows()
     assert session.committed == 1
@@ -781,11 +948,13 @@ def test_one_row_per_press_and_no_sensor_id_in_it_or_the_log(
         ]
     )
     assert SENSOR not in written
+    assert POD not in written
 
     logged = "\n".join(record.getMessage() for record in caplog.records)
     # httpx logs every request URL, and the registry's asset path carries the id.
     assert any("HTTP Request" in record.getMessage() for record in caplog.records)
     assert SENSOR not in logged
+    assert POD not in logged
     assert "Anna" not in logged and "anna@example.org" not in logged
 
 
