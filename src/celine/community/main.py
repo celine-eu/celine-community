@@ -8,7 +8,7 @@ from fastapi.routing import APIRoute
 
 from celine.community.routes import create_api_router
 from celine.community.security.middleware import SecurityHeadersMiddleware
-from celine.community.settings import settings
+from celine.community.settings import posture_guard, settings
 
 TAGS = [
     {"name": "user", "description": "Authenticated manager profile."},
@@ -30,6 +30,9 @@ def stable_operation_id(route: APIRoute) -> str:
 def create_app() -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(levelname)-8s %(name)s %(message)s")
     logger = logging.getLogger(__name__)
+    # Before anything is served: outside CELINE_ENV=dev a development default
+    # (database password, client secret, local issuer, fixture auth) refuses to start.
+    posture_guard(settings).enforce()
     if settings.dev_auth_enabled:
         logger.warning(
             "Development authentication is enabled — every request is the %s fixture",

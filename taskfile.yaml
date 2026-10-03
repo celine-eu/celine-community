@@ -17,12 +17,12 @@ tasks:
       # Use the prepared virtualenv directly. `uv run` reconciles the lockfile
       # before starting and would replace celine-dev's editable celine-sdk link,
       # making the local NudgingAdminClient disappear at every restart.
-      - .venv/bin/uvicorn {{.APP_MODULE}} --host {{.HOST}} --port {{.PORT}} --reload
+      - CELINE_ENV=${CELINE_ENV:-dev} .venv/bin/uvicorn {{.APP_MODULE}} --host {{.HOST}} --port {{.PORT}} --reload
 
   debug:
     desc: Run the Community BFF with debugpy
     cmds:
-      - .venv/bin/python -m debugpy --listen 0.0.0.0:4{{.PORT}} -m uvicorn {{.APP_MODULE}} --host {{.HOST}} --port {{.PORT}} --reload
+      - CELINE_ENV=${CELINE_ENV:-dev} .venv/bin/python -m debugpy --listen 0.0.0.0:4{{.PORT}} -m uvicorn {{.APP_MODULE}} --host {{.HOST}} --port {{.PORT}} --reload
 
   test:
     desc: Run tests

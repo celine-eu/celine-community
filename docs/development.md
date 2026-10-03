@@ -18,4 +18,26 @@ The frontend always reads this BFF. Development authentication is disabled by de
 browser sessions validate the real Keycloak token and its per-REC role. Analytical data comes from
 the Digital Twin configured by `DIGITAL_TWIN_API_URL` using the `svc-community` client credentials.
 Set `DEV_AUTH_ENABLED=true` only for a deliberate fixture session; development authentication
-cannot be enabled when `ENVIRONMENT=production`.
+is refused unless `CELINE_ENV=dev`.
+
+## Deployment posture
+
+The service follows `celine.sdk.posture`: **only `CELINE_ENV=dev` relaxes** (`ENVIRONMENT` is
+still read when `CELINE_ENV` is empty). Unset, empty, `staging`, `prod`, `test` or a typo is
+hardened. `task run` and `task debug` export `CELINE_ENV=dev`; `CELINE_ENV=staging task run`
+runs the same entry point hardened.
+
+Hardened, startup refuses:
+
+- a `DATABASE_URL` carrying a local-stack password;
+- `CELINE_OIDC_CLIENT_SECRET` empty or equal to `CELINE_OIDC_CLIENT_ID` (the dev default);
+- `CELINE_OIDC_BASE_URL` / `CELINE_OIDC_JWKS_URI` left on the SDK's local Keycloak default, or no
+  audience;
+- `DEV_AUTH_ENABLED=true`.
+
+and the access policy fails closed: policies that do not load stop startup, and an evaluation
+error denies. In dev the same findings are one warning at startup, and a missing policy degrades
+to the fixture decision.
+
+`celine.sdk.posture` ships in the next celine-sdk release; until then the SDK must be the local
+editable checkout (TODO: raise the `celine-sdk` floor in `pyproject.toml` to that release).

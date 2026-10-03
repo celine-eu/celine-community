@@ -11,18 +11,48 @@ def test_development_authentication_is_opt_in(monkeypatch) -> None:
     assert Settings(_env_file=None).dev_auth_enabled is False
 
 
-def test_production_refuses_development_authentication() -> None:
-    with pytest.raises(ValidationError):
+@pytest.mark.parametrize(
+    ("celine_env", "environment"),
+    [
+        ("", ""),  # unset is hardened
+        ("staging", ""),
+        ("prod", ""),
+        ("production", ""),
+        ("", "development"),  # the old default name no longer relaxes
+        ("", "test"),
+        ("devel", "dev"),  # a typo in the first name is not rescued by the second
+    ],
+)
+def test_development_authentication_is_refused_outside_dev(
+    celine_env: str, environment: str
+) -> None:
+    with pytest.raises(ValidationError, match="DEV_AUTH_ENABLED"):
         Settings(
-            environment="production",
+            _env_file=None,
+            celine_env=celine_env,
+            environment=environment,
             dev_auth_enabled=True,
         )
 
 
-def test_production_accepts_fail_closed_configuration() -> None:
+@pytest.mark.parametrize(
+    ("celine_env", "environment"),
+    [("dev", ""), ("DEV", ""), ("", "dev")],
+)
+def test_development_authentication_is_accepted_in_dev(celine_env: str, environment: str) -> None:
     result = Settings(
-        environment="production",
-        dev_auth_enabled=False,
+        _env_file=None,
+        celine_env=celine_env,
+        environment=environment,
+        dev_auth_enabled=True,
     )
+    assert result.is_dev is True
 
-    assert result.environment == "production"
+
+@pytest.mark.parametrize("value", ["production", "prod", "staging", "anything-else"])
+def test_any_environment_value_is_accepted_and_hardened(value: str) -> None:
+    """The old Literal rejected `prod`/`staging` at startup; now they are hardened."""
+    result = Settings(_env_file=None, celine_env=value, dev_auth_enabled=False)
+
+    assert result.hardened is True
+    assert result.posture_env == value

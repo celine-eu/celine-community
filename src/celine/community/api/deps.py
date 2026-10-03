@@ -162,7 +162,7 @@ def _development_user() -> JwtUser:
 
 
 def get_user_from_request(request: Request) -> JwtUser:
-    if settings.dev_auth_enabled and settings.environment != "production":
+    if settings.dev_auth_enabled and settings.is_dev:
         return _development_user()
 
     token = extract_token(request)

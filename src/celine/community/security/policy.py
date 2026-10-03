@@ -138,16 +138,20 @@ class CommunityAccessPolicy:
             from celine.sdk.policies import PolicyEngine
 
             policies_dir = settings.policies.policies_dir
-            self._engine = PolicyEngine(policies_dir=str(policies_dir))
-            self._engine.load()
+            engine = PolicyEngine(policies_dir=str(policies_dir))
+            engine.load()
+            self._engine = engine
             logger.info("Community access policy loaded from %s", policies_dir)
         except Exception as exc:
-            if settings.environment == "production":
+            # Fail closed: only CELINE_ENV=dev may run without the policy.
+            if settings.hardened:
                 raise RuntimeError("Community policies failed to load") from exc
             logger.warning("Community policy unavailable in development: %s", exc)
 
     async def _evaluate(self, user: JwtUser, action: str, community_key: str | None) -> Decision:
         if self._engine is None:
+            if settings.hardened:
+                return Decision(False, "policy engine unavailable")
             return Decision(settings.dev_auth_enabled, "development policy fallback")
         try:
             result = self._engine.evaluate_decision(
@@ -157,7 +161,7 @@ class CommunityAccessPolicy:
             return Decision(result.allowed, result.reason or None)
         except Exception as exc:
             logger.exception("Policy evaluation failed")
-            if settings.environment == "production":
+            if settings.hardened:
                 return Decision(False, "policy evaluation failed")
             return Decision(settings.dev_auth_enabled, f"development policy fallback: {exc}")
 

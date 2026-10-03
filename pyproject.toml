@@ -5,8 +5,12 @@ description = "Backend-for-frontend for the CELINE REC Manager Dashboard"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  # Imported directly (`import jwt`); 2.14 is the floor for the advisories fixed there.
+  "pyjwt>=2.14",
   "alembic>=1.13.0",
   "asyncpg>=0.31.0",
+  # TODO: raise to the celine-sdk release that ships `celine.sdk.posture`
+  # (unreleased; the local editable checkout carries it).
   "celine-sdk>=1.21.0",
   "fastapi>=0.136.1",
   "pydantic>=2.13.3",

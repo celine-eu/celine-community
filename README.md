@@ -212,7 +212,12 @@ deterministic fixture is explicitly wanted; `DEV_USER_PROFILE=manager` is an org
 manager of `example_rec`, while `admin` is a realm admin who belongs to no organization
 and sees every REC the registry lists. Both fixtures carry the claim shape a real token carries.
 Analytical data always comes from the configured Digital Twin; unavailable sources are returned as
-explicit partial data. Production startup refuses development authentication.
+explicit partial data.
+
+Only `CELINE_ENV=dev` accepts the local defaults (`task run` exports it; `.env.example` sets it).
+Unset or any other value is hardened: the dev database password, a client secret equal to the
+client id, the SDK's default issuer and `DEV_AUTH_ENABLED` refuse to start, and the access policy
+fails closed. See [docs/development.md](docs/development.md#deployment-posture).
 
 The API listens on `http://localhost:8019`; OpenAPI is available at `/api/docs`.
 
