@@ -1,6 +1,6 @@
 """Authenticated manager profile routes."""
 
-from celine.sdk.auth.jwt import organization_aliases, realm_groups
+from celine.sdk.auth import organization_aliases, realm_roles
 from fastapi import APIRouter, HTTPException
 
 from celine.community.api.deps import ConsoleUserDep, RegistryDep
@@ -33,7 +33,7 @@ async def me(user: ConsoleUserDep, registry: RegistryDep) -> MeResponse:
     try:
         recs, registry_available = await accessible_recs(user, registry)
     except RegistryUnavailable as exc:
-        # Not a 403. This caller's grant is realm-level, so their REC list exists
+        # Not a 403. This caller's grant is platform-wide, so their REC list exists
         # nowhere but the registry; telling an administrator they have no access
         # when a downstream is down sends them to look in the wrong place.
         raise HTTPException(
@@ -59,7 +59,7 @@ async def me(user: ConsoleUserDep, registry: RegistryDep) -> MeResponse:
             preferred_username=user.preferred_username,
             locale=claims.get("locale"),
             organizations=organization_aliases(claims),
-            realm_groups=realm_groups(claims),
+            platform_roles=realm_roles(claims),
             communities=[
                 CommunityAccess(key=rec.key, name=rec.name, capabilities=list(rec.capabilities))
                 for rec in recs

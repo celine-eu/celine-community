@@ -398,10 +398,15 @@ def test_the_shapes_of_another_rec_are_refused(downstream) -> None:
     assert not shape.called
 
 
-def test_a_realm_admin_reads_the_shapes_of_any_rec(downstream) -> None:
+def test_a_platform_admin_reads_the_shapes_of_any_rec(downstream) -> None:
     registry(downstream, {"north": area("North", "AC000E00001")})
     dt_answering(downstream)
-    _as(JwtUser(sub="platform-admin", claims={"sub": "platform-admin", "groups": ["/admins"]}))
+    _as(
+        JwtUser(
+            sub="platform-admin",
+            claims={"sub": "platform-admin", "realm_access": {"roles": ["platform-admin"]}},
+        )
+    )
     try:
         response = client.get(SHAPES_PATH)
     finally:

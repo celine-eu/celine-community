@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     dev_user_email: str = "manager@example.local"
     dev_user_name: str = "REC Manager"
     # Which branch of the policy the development fixture exercises: an
-    # organization-scoped manager of one REC, or a realm admin who belongs to no
-    # organization and sees every REC the registry lists. The REC itself is not a
+    # organization-scoped manager of one REC, or a `platform-admin` realm-role
+    # holder who belongs to no organization and sees every REC the registry lists. The REC itself is not a
     # setting — the fixture belongs to a real Keycloak organization whose alias is
     # the registry key, so there is nothing left to override.
     dev_user_profile: Literal["manager", "admin"] = "manager"

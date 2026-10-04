@@ -209,8 +209,8 @@ task run
 
 The local defaults validate the real Keycloak identity. Set `DEV_AUTH_ENABLED=true` only when a
 deterministic fixture is explicitly wanted; `DEV_USER_PROFILE=manager` is an organization-scoped
-manager of `example_rec`, while `admin` is a realm admin who belongs to no organization
-and sees every REC the registry lists. Both fixtures carry the claim shape a real token carries.
+manager of `example_rec`, while `admin` holds the `platform-admin` realm role, belongs to no
+organization and sees every REC the registry lists. Both fixtures carry the claim shape a real token carries.
 Analytical data always comes from the configured Digital Twin; unavailable sources are returned as
 explicit partial data.
 

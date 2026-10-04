@@ -63,3 +63,12 @@ for a REC that is not theirs is refused identically whether or not it exists.
 What will tempt someone to undo this is the orphan case — wanting the list to show only
 fully-provisioned RECs. Doing that means the Keycloak Admin seam and reopening
 celine-policies' ADR-0003. Decide that there, not here.
+
+## Amendment (2026-10-03): the platform-wide grant is a realm role
+
+Realm groups no longer grant anything. Read every "realm `admins`", "realm-level grant" and
+"realm administrator" above as the Keycloak realm **role** `platform-admin`
+(`realm_access.roles`), the only platform-wide grant; realm `managers` grants nothing, and a
+realm group still present in a token is ignored. The decision itself is unchanged: a
+`platform-admin` holder belongs to no organization, so their REC list still comes from the
+registry. See [architecture](../architecture.md#which-rec-and-who-says-so).

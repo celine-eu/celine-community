@@ -9,8 +9,10 @@ dependencies = [
   "pyjwt>=2.14",
   "alembic>=1.13.0",
   "asyncpg>=0.31.0",
-  # TODO: raise to the celine-sdk release that ships `celine.sdk.posture`
-  # (unreleased; the local editable checkout carries it).
+  # TODO: raise to >=2.0.0 and re-lock once it is published. 2.0.0 removes
+  # `realm_groups` and adds `realm_roles`/`PLATFORM_ADMIN_ROLE`, which this service
+  # now imports; it also ships `celine.sdk.posture`. Until then the local editable
+  # checkout (celine-dev `task dev:link`) carries both.
   "celine-sdk>=1.21.0",
   "fastapi>=0.136.1",
   "pydantic>=2.13.3",

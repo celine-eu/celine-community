@@ -244,7 +244,7 @@ def test_me_lists_only_the_recs_the_token_grants() -> None:
         "preferredUsername": "community-manager-dev",
         "locale": "it",
         "organizations": ["example_rec"],
-        "realmGroups": [],
+        "platformRoles": [],
         "communities": [
             {
                 "key": "example_rec",
@@ -289,17 +289,17 @@ def test_me_serves_an_org_scoped_caller_from_the_token_when_the_registry_is_down
     assert body["user"]["communities"][0]["name"] == "Example Rec"
 
 
-def test_a_realm_admin_sees_every_rec_the_registry_lists() -> None:
-    def realm_admin() -> JwtUser:
+def test_a_platform_admin_sees_every_rec_the_registry_lists() -> None:
+    def platform_admin() -> JwtUser:
         claims = {
             "sub": "platform-admin",
-            "groups": ["/admins"],
+            "realm_access": {"roles": ["platform-admin", "offline_access"]},
             "scope": "community.read community.devices.read community.nudging.read",
             "organization": {},
         }
         return JwtUser(sub="platform-admin", organizations=[], claims=claims)
 
-    app.dependency_overrides[get_user_from_request] = realm_admin
+    app.dependency_overrides[get_user_from_request] = platform_admin
     try:
         response = client.get("/api/me")
     finally:
@@ -307,26 +307,53 @@ def test_a_realm_admin_sees_every_rec_the_registry_lists() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["user"]["realmGroups"] == ["admins"]
+    assert body["user"]["platformRoles"] == ["platform-admin", "offline_access"]
+    assert "realmGroups" not in body["user"]
     assert body["user"]["organizations"] == []
     assert {rec["key"] for rec in body["user"]["communities"]} == {
         "example_rec",
         "other_rec",
     }
     # No `community.alerts.write` scope on this token, so the surface is absent
-    # even though the realm group would otherwise grant it.
+    # even though the platform role would otherwise grant it.
     for rec in body["user"]["communities"]:
         assert "alerts.write" not in rec["capabilities"]
 
 
-def test_a_realm_admin_gets_503_not_403_when_the_registry_is_down() -> None:
+def test_a_retired_realm_admins_group_lists_no_rec() -> None:
+    """A realm group still present in a token grants nothing: `/admins` included."""
+
+    def legacy_realm_admin() -> JwtUser:
+        claims = {
+            "sub": "legacy-admin",
+            "groups": ["/admins", "admins"],
+            "realm_access": {"roles": ["admin"]},
+            "scope": "community.read community.devices.read community.nudging.read",
+            "organization": {},
+        }
+        return JwtUser(sub="legacy-admin", organizations=[], claims=claims)
+
+    app.dependency_overrides[get_user_from_request] = legacy_realm_admin
+    try:
+        response = client.get("/api/me")
+    finally:
+        app.dependency_overrides.pop(get_user_from_request, None)
+
+    assert response.status_code == 403
+
+
+def test_a_platform_admin_gets_503_not_403_when_the_registry_is_down() -> None:
     """Their REC list has no other source, and a 403 would misdirect the fix."""
 
-    def realm_admin() -> JwtUser:
-        claims = {"sub": "platform-admin", "groups": ["/admins"], "scope": "community.read"}
+    def platform_admin() -> JwtUser:
+        claims = {
+            "sub": "platform-admin",
+            "realm_access": {"roles": ["platform-admin"]},
+            "scope": "community.read",
+        }
         return JwtUser(sub="platform-admin", organizations=[], claims=claims)
 
-    app.dependency_overrides[get_user_from_request] = realm_admin
+    app.dependency_overrides[get_user_from_request] = platform_admin
     app.dependency_overrides[get_registry_client] = lambda: UnavailableRegistry()
     try:
         response = client.get("/api/me")
@@ -349,9 +376,7 @@ def test_a_signed_in_caller_who_manages_nothing_is_denied_not_bounced_to_login()
         return JwtUser(
             sub="ex-00001",
             organizations=[
-                Organization._from_claim(
-                    "example_rec", {"type": ["rec"], "groups": ["/viewers"]}
-                )
+                Organization._from_claim("example_rec", {"type": ["rec"], "groups": ["/viewers"]})
             ],
             claims=claims,
         )
@@ -665,9 +690,7 @@ def test_feedback_inbox_enforces_the_rec_boundary() -> None:
 
 
 def test_overview_is_authorized_and_matches_frontend_contract() -> None:
-    response = client.get(
-        "/api/communities/example_rec/overview", params={"period": "7d"}
-    )
+    response = client.get("/api/communities/example_rec/overview", params={"period": "7d"})
 
     assert response.status_code == 200
     body = response.json()
@@ -696,9 +719,7 @@ def test_cross_rec_access_is_denied() -> None:
 
 
 def test_invalid_period_is_rejected() -> None:
-    response = client.get(
-        "/api/communities/example_rec/overview", params={"period": "year"}
-    )
+    response = client.get("/api/communities/example_rec/overview", params={"period": "year"})
 
     assert response.status_code == 422
 
@@ -789,9 +810,7 @@ def test_device_scope_is_required_even_for_a_manager() -> None:
         return JwtUser(
             sub="manager-without-scope",
             organizations=[
-                Organization._from_claim(
-                    "example_rec", {"type": ["rec"], "groups": ["/managers"]}
-                )
+                Organization._from_claim("example_rec", {"type": ["rec"], "groups": ["/managers"]})
             ],
             claims=claims,
         )
@@ -879,12 +898,8 @@ def test_window_drill_down_is_device_only_and_marks_partial_correlation() -> Non
 
 
 def test_upcoming_window_and_unknown_window_are_explicit() -> None:
-    upcoming = client.get(
-        "/api/communities/example_rec/demonstration/windows/FW-2026-08-06-01"
-    )
-    missing = client.get(
-        "/api/communities/example_rec/flexibility/windows/not-in-this-rec"
-    )
+    upcoming = client.get("/api/communities/example_rec/demonstration/windows/FW-2026-08-06-01")
+    missing = client.get("/api/communities/example_rec/flexibility/windows/not-in-this-rec")
 
     assert upcoming.status_code == 404
     assert missing.status_code == 404
@@ -935,12 +950,8 @@ def test_points_distribution_and_leaderboard_declare_coverage() -> None:
 
 
 def test_points_ledger_explains_settlement_bonus_and_cap() -> None:
-    response = client.get(
-        "/api/communities/example_rec/devices/IT001E000327/points/ledger"
-    )
-    missing = client.get(
-        "/api/communities/example_rec/devices/not-in-this-rec/points/ledger"
-    )
+    response = client.get("/api/communities/example_rec/devices/IT001E000327/points/ledger")
+    missing = client.get("/api/communities/example_rec/devices/not-in-this-rec/points/ledger")
 
     assert response.status_code == 200
     assert response.json()["settlementPoints"] == 12
@@ -955,9 +966,7 @@ def test_anti_gaming_flags_can_be_acknowledged_without_identity_data() -> None:
     assert flags.status_code == 200
     flag = flags.json()["items"][0]
 
-    acknowledged = client.post(
-        f"/api/communities/example_rec/points/flags/{flag['id']}/ack"
-    )
+    acknowledged = client.post(f"/api/communities/example_rec/points/flags/{flag['id']}/ack")
 
     assert acknowledged.status_code == 200
     assert acknowledged.json()["state"] == "acknowledged"
@@ -1067,9 +1076,7 @@ def test_alert_mutations_require_dedicated_write_scope() -> None:
         return JwtUser(
             sub="read-only-manager",
             organizations=[
-                Organization._from_claim(
-                    "example_rec", {"type": ["rec"], "groups": ["/managers"]}
-                )
+                Organization._from_claim("example_rec", {"type": ["rec"], "groups": ["/managers"]})
             ],
             claims=claims,
         )

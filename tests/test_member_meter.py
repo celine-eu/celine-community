@@ -866,8 +866,22 @@ def _service(scope: str) -> JwtUser:
             },
         ),
         JwtUser(sub="realm-manager", claims={"sub": "realm-manager", "groups": ["/managers"]}),
+        JwtUser(
+            sub="legacy-admin",
+            claims={
+                "sub": "legacy-admin",
+                "groups": ["/admins", "admins"],
+                "realm_access": {"roles": ["admin"]},
+            },
+        ),
     ],
-    ids=["manager-of-another-rec", "service-community-admin", "viewer", "realm-managers"],
+    ids=[
+        "manager-of-another-rec",
+        "service-community-admin",
+        "viewer",
+        "realm-managers",
+        "retired-realm-admins",
+    ],
 )
 @pytest.mark.parametrize("method", ["GET", "PUT", "DELETE"])
 def test_a_caller_without_members_meter_is_refused_before_the_registry(
@@ -886,10 +900,15 @@ def test_a_caller_without_members_meter_is_refused_before_the_registry(
     assert session.added == []
 
 
-def test_a_realm_admin_may_attach_on_any_rec(downstream) -> None:
+def test_a_platform_admin_may_attach_on_any_rec(downstream) -> None:
     registry(downstream)
     downstream.put(ASSET_URL).mock(return_value=httpx.Response(200, json=stored()))
-    _as(JwtUser(sub="platform-admin", claims={"sub": "platform-admin", "groups": ["/admins"]}))
+    _as(
+        JwtUser(
+            sub="platform-admin",
+            claims={"sub": "platform-admin", "realm_access": {"roles": ["platform-admin"]}},
+        )
+    )
     try:
         response = attach()
     finally:

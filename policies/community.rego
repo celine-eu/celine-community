@@ -14,25 +14,30 @@ import rego.v1
 # Two subject types, authorised on different evidence — the split
 # `celine.onboarding.access` and `celine.grid.access` both make:
 #
-#   * Managers (humans) are authorised by **group membership**. Keycloak has
-#     already verified which organization they belong to, so the organization is
-#     the tenancy boundary and the group is the role. They additionally carry the
+#   * Managers (humans) are authorised by **organization group membership**, or
+#     by the `platform-admin` realm role. Keycloak has already verified which
+#     organization they belong to, so the organization is the tenancy boundary
+#     and the group is the role. They additionally carry the
 #     per-surface `community.*` scopes oauth2-proxy mints on their token.
 #   * Service accounts have no organization membership, so a **scope** is the
 #     only way for them to express intent.
 #
-# Groups exist at two levels and the difference is load-bearing:
+# A human's grant exists at exactly two levels and the difference is load-bearing:
 #
-#   * A **realm**-level group (`groups` claim) is a platform-wide grant — every
-#     REC on the deployment.
+#   * The **platform** level is the Keycloak realm *role* `platform-admin`
+#     (`realm_access.roles`, passed as `input.subject.roles`). It is the only
+#     platform-wide grant — every REC on the deployment.
 #   * An **organization**-level group (`organization.<alias>.groups`) grants the
 #     capability for that REC only.
 #
-# `security/policy.py` passes these separately and never merges them. Merging is
-# what `celine.sdk.auth.jwt.extract_groups` does, and it is the wrong thing here:
-# a `managers` badge held inside REC A would otherwise satisfy a realm-level
-# check and authorise an action on REC B. Until this rewrite that is exactly what
-# `has_manager_role` did, and only a single-REC equality check stood in the way.
+# Realm *groups* (`/admins`, `/managers`, ...) are no longer a grant at any level:
+# their names collide with the organization groups', so the same `admins` meant
+# two things. `security/policy.py` passes `input.subject.groups` empty, and this
+# policy never reads it — a realm group still present in a token grants nothing.
+#
+# `security/policy.py` also passes only the organization matching the request,
+# never a merged list: a `managers` badge held inside REC A must not authorise an
+# action on REC B.
 #
 # An action name that appears in no table below is denied, so adding an endpoint
 # without adding its capability fails closed.
@@ -45,16 +50,15 @@ default reason := "access denied"
 
 # ── capability tables ────────────────────────────────────────────────────────
 
-# Organization `admins` and `managers`, and no one else. The realm also has `editors`,
-# `viewers` and `participants`; onboarding grants its read capabilities to all
-# four, and this dashboard deliberately does not. Every surface here is a manager
-# surface. A read-only REC member is one more row in this table when someone
-# needs one — not a redesign.
+# Organization `admins` and `managers`, and no one else. Organizations also have
+# `editors` and `viewers`; onboarding grants its read capabilities to them, and this
+# dashboard deliberately does not. Every surface here is a manager surface. A
+# read-only REC member is one more row in this table when someone needs one — not
+# a redesign.
 #
-# The names are plural because the realm's groups are: /admins, /editors,
-# /managers, /participants, /viewers. The `rec-manager`, `rec-managers`,
-# `manager` and `admin` spellings this table used to accept matched no group that
-# has ever existed in the realm.
+# The names are plural because the organization groups are: /admins, /managers,
+# /editors, /viewers. The `rec-manager`, `rec-managers`, `manager` and `admin`
+# spellings this table used to accept matched no group that has ever existed.
 required_org_groups := {
 	"console.read": {"admins", "managers"},
 	"community.read": {"admins", "managers"},
@@ -71,24 +75,11 @@ required_org_groups := {
 	"members.edit": {"admins", "managers"},
 }
 
-# Realm membership is platform-wide. Only administrators receive that grant:
-# a realm `/managers` badge must never turn a REC manager into the manager of
-# every other REC in the deployment.
-required_realm_groups := {
-	"console.read": {"admins"},
-	"community.read": {"admins"},
-	"objectives.write": {"admins"},
-	"devices.read": {"admins"},
-	"flexibility.read": {"admins"},
-	"gamification.read": {"admins"},
-	"nudging.read": {"admins"},
-	"alerts.read": {"admins"},
-	"alerts.write": {"admins"},
-	"members.read": {"admins"},
-	"members.invite": {"admins"},
-	"members.meter": {"admins"},
-	"members.edit": {"admins"},
-}
+# The platform-wide grant: a Keycloak realm role, never a group. It reaches every
+# action in `required_org_groups` on every REC. No other realm role grants
+# anything — `default-roles-celine`, `offline_access`, and the retired `admin`,
+# `manager`, `editor` and `viewer` roles included.
+platform_admin_role := "platform-admin"
 
 # A scope a human's token must carry *in addition* to the group. Orthogonal to
 # the group check and unchanged by this rewrite: the group says which REC, the
@@ -141,11 +132,12 @@ has_required_scope if not required_scopes[input.action.name]
 
 has_required_scope if has_scope(required_scopes[input.action.name])
 
-# The realm `/admins` group grants the action on every REC, so no organization
-# check. Managers deliberately have no realm-wide branch.
-granted_by_realm_group if {
-	some g in required_realm_groups[input.action.name]
-	g in input.subject.groups
+# The `platform-admin` realm role grants every known action on every REC, so no
+# organization check. Organization managers deliberately have no platform-wide
+# branch, and `input.subject.groups` is read by no rule.
+granted_by_platform_role if {
+	known_action
+	platform_admin_role in object.get(input.subject, "roles", [])
 }
 
 # An organization-level group grants the action for that organization's REC only.
@@ -169,7 +161,7 @@ granted_by_org_group if {
 allow if {
 	not is_service
 	has_required_scope
-	granted_by_realm_group
+	granted_by_platform_role
 }
 
 allow if {
@@ -198,10 +190,10 @@ allow if {
 # One else-chain rather than independent rules: two `reason` rules matching the
 # same request is a rego conflict error, not a precedence question.
 
-reason := "granted by realm group" if {
+reason := "granted by platform role" if {
 	not is_service
 	allow
-	granted_by_realm_group
+	granted_by_platform_role
 } else := "granted by organization group" if {
 	not is_service
 	allow

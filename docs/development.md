@@ -20,6 +20,21 @@ the Digital Twin configured by `DIGITAL_TWIN_API_URL` using the `svc-community` 
 Set `DEV_AUTH_ENABLED=true` only for a deliberate fixture session; development authentication
 is refused unless `CELINE_ENV=dev`.
 
+## Real-token tests
+
+`tests/test_real_tokens.py` checks the two grant levels — the `platform-admin` realm role and an
+organization's own groups — against tokens minted by a **local** Keycloak whose realm
+celine-policies has converged (`keycloak bootstrap`, `seed-dev-users`). It is skipped unless
+`CELINE_COMMUNITY_KEYCLOAK_URL` is set:
+
+```bash
+CELINE_COMMUNITY_KEYCLOAK_URL=http://keycloak.celine.localhost .venv/bin/pytest tests/test_real_tokens.py
+```
+
+The legacy case — a token still carrying the retired realm group `/admins` — needs such a token
+in `CELINE_COMMUNITY_LEGACY_TOKEN`, since a converged realm cannot mint one; without it that
+case is skipped.
+
 ## Deployment posture
 
 The service follows `celine.sdk.posture`: **only `CELINE_ENV=dev` relaxes** (`ENVIRONMENT` is

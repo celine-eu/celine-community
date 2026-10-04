@@ -1,9 +1,12 @@
 """Local OPA policy evaluation for the Community Manager BFF.
 
 Wraps `policies/community.rego`. The wrapper's one job beyond plumbing is to keep
-realm-level and organization-level groups **apart**, and to pass only the
-organization matching the REC being asked about. See `policies/community.rego`
-for why that is load-bearing rather than tidy.
+the two levels of grant **apart**: the platform level is the Keycloak realm *role*
+`platform-admin` (`realm_access.roles`), passed as `input.subject.roles`; the
+organization level is the groups of the one organization matching the REC being
+asked about, passed in `claims.org_groups`. Nothing is ever passed in
+`input.subject.groups`, so a realm group still present in a token grants nothing.
+See `policies/community.rego` for why that is load-bearing rather than tidy.
 """
 
 from __future__ import annotations
@@ -11,8 +14,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from celine.sdk.auth import JwtUser
-from celine.sdk.auth.jwt import organization_aliases, organization_groups, realm_groups
+from celine.sdk.auth import JwtUser, organization_aliases, organization_groups, realm_roles
 
 from celine.community.settings import settings
 
@@ -73,7 +75,12 @@ def rec_aliases(user: JwtUser) -> list[str]:
     ]
 
 
-def _policy_input(user: JwtUser, action: str, community_key: str | None):
+def policy_input(user: JwtUser, action: str, community_key: str | None):
+    """The policy input for one `(caller, action, REC)` triple.
+
+    `subject.roles` is the caller's Keycloak realm roles, read from
+    `realm_access.roles` only; celine-sdk emits it as `input.subject.roles`.
+    """
     from celine.sdk.policies import (
         Action,
         PolicyInput,
@@ -85,13 +92,13 @@ def _policy_input(user: JwtUser, action: str, community_key: str | None):
 
     claims = user.claims or {}
     aliases = organization_aliases(claims)
-    realm = realm_groups(claims)
 
-    # Organization or realm membership is the authoritative "this is a human"
-    # signal. `is_service_account` can misfire on a user JWT that carries a
-    # `scope` claim but no groups — the trap celine-grid and onboarding both
-    # document.
-    if aliases or realm:
+    # Organization membership is the authoritative "this is a human" signal.
+    # `is_service_account` can misfire on a user JWT that carries a `scope` claim
+    # but no identity claims — the trap celine-grid and onboarding both document —
+    # and misfiring towards "service" would hand a person the service scopes,
+    # which reach every REC. This classifies; it grants nothing.
+    if aliases:
         subject_type = SubjectType.USER
     elif user.is_service_account:
         subject_type = SubjectType.SERVICE
@@ -111,7 +118,12 @@ def _policy_input(user: JwtUser, action: str, community_key: str | None):
         subject=Subject(
             id=user.sub,
             type=subject_type,
-            groups=realm,
+            # The platform level: realm roles, never merged with any group.
+            roles=realm_roles(claims),
+            # Deliberately empty. The token's top-level `groups` claim is a retired
+            # platform mechanism (realm groups) and grants nothing here; the
+            # platform level travels in `input.subject.roles` instead.
+            groups=[],
             scopes=scopes,
             claims={
                 "organization": matched,
@@ -156,7 +168,7 @@ class CommunityAccessPolicy:
         try:
             result = self._engine.evaluate_decision(
                 _PACKAGE,
-                _policy_input(user, action, community_key),
+                policy_input(user, action, community_key),
             )
             return Decision(result.allowed, result.reason or None)
         except Exception as exc:
@@ -174,7 +186,7 @@ class CommunityAccessPolicy:
         Resolved per REC rather than once: the whole point of the organization
         check is that the answer differs between RECs. That is `len(CAPABILITIES)`
         in-process evaluations per REC, against a REC count in the single digits
-        for an org-scoped manager and the registry's count for a realm admin.
+        for an org-scoped manager and the registry's count for a platform admin.
         """
         allowed: set[str] = set()
         for action in CAPABILITIES:

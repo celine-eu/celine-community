@@ -47,6 +47,8 @@ has not reported yet is accepted like any other.
 **`members.meter` (attach, detach) and `members.edit` (role, area) are person-only actions.**
 They are granted to the same groups as `members.read`: the REC organization's `admins` and
 `managers`, and the realm `/admins` on every REC, as for `members.read` (requester, 2026-09-27).
+Amended 2026-10-03: the platform-wide grant is the realm role `platform-admin`; realm groups,
+`/admins` included, grant nothing.
 Neither has a service scope, and the `community.admin` override does not reach them, so a service
 token never attaches a meter or edits a profile. `GET /api/me` reports them only when the REC registry is
 configured, so a dashboard without one offers no meter or edit action.

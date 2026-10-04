@@ -60,9 +60,11 @@ class MeUser(ApiModel):
     #: an operator can see why a REC is or is not in the list below; it is not a
     #: grant.
     organizations: list[str]
-    #: Realm-level groups. Only `admins` is a platform-wide dashboard grant;
-    #: `managers` must be held inside the matching REC organization.
-    realm_groups: list[str]
+    #: The caller's platform roles: Keycloak realm roles (`realm_access.roles`),
+    #: never a group. Only `platform-admin` is a platform-wide dashboard grant;
+    #: `admins` and `managers` count only inside the matching REC organization.
+    #: Reported for diagnosis; it is not a grant — `communities` already is.
+    platform_roles: list[str]
     communities: list[CommunityAccess]
     scopes: list[str]
 
@@ -71,7 +73,7 @@ class MeResponse(ApiModel):
     user: MeUser
     #: False when the REC registry did not answer and the list was served from the
     #: token alone: the RECs are right, their names are derived from their keys,
-    #: and a realm admin would have got a 503 instead.
+    #: and a platform admin would have got a 503 instead.
     registry_available: bool = True
 
 

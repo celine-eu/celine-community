@@ -11,21 +11,24 @@ only manager-owned workflow state in PostgreSQL.
 
 The token decides, and it decides per REC rather than once per session.
 
-Groups exist at two levels and the difference is the whole boundary. The realm-level `/admins`
-group (`groups` claim) is the only platform-wide human grant and reaches every REC on the
-deployment. An **organization** group (`organization.<alias>.groups`) grants that REC only:
-`/admins` and `/managers` work there only when the organization is typed `rec` — a Keycloak
-organization is also how a DSO is modelled, and a DSO's managers are managers of a DSO. A
-realm-level `/managers` group grants no dashboard data. `security/policy.py` reads the two levels
-apart and passes only the organization matching the request; `celine.sdk.auth.jwt.extract_groups`
-merges them, which would let a `managers` badge held in REC A authorise an action on REC B.
+A person's grant exists at exactly two levels, and the difference is the whole boundary. The
+Keycloak realm **role** `platform-admin` (`realm_access.roles`) is the only platform-wide grant and
+reaches every REC on the deployment. An **organization** group (`organization.<alias>.groups`)
+grants that REC only: `/admins` and `/managers` work there only when the organization is typed
+`rec` — a Keycloak organization is also how a DSO is modelled, and a DSO's managers are managers of
+a DSO. Realm **groups** (`/admins`, `/managers`, … in the `groups` claim) grant nothing at any
+level: their names are the organization groups' names, so the same `admins` meant two things. A
+realm group still present in a token is ignored, and so is every realm role other than
+`platform-admin`. `security/policy.py` passes the realm roles as the policy's `input.subject.roles`,
+leaves `input.subject.groups` empty, and passes only the organization matching the request — never
+a merged list, which would let a `managers` badge held in REC A authorise an action on REC B.
 
 The **REC registry is the REC universe**: `GET /api/me` lists the registry's communities the caller
 holds at least one capability on, so an organization alias the registry does not know is not
 offered. The registry answers enumeration and naming only — every access decision is made from the
 token with no network call, which is why a registry outage degrades the REC list and leaves
 per-request access untouched. A caller whose grant is organization-level is then served from their
-token with the REC names derived; a caller whose grant is realm-level gets `503`, because their list
+token with the REC names derived; a platform admin gets `503`, because their list
 has no other source and `403` would send them to look in the wrong place.
 
 The organization **alias** is the REC's identity throughout: it is the Keycloak alias, the REC
@@ -85,7 +88,7 @@ the email sends. The "Sent emails" view reads only the two email actions, so it 
 the alerts audit feed lists every row of the REC.
 
 The opt-in development profile uses a synthetic caller — `DEV_USER_PROFILE` selects an
-organization-scoped manager or a realm admin, so both policy branches are exercisable without a
+organization-scoped manager or a `platform-admin` holder, so both policy branches are exercisable without a
 login — and deterministic overview data. Normal local operation validates Keycloak. Production
 startup rejects the shortcut and policy failures are denied by default.
 

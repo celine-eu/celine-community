@@ -4,7 +4,7 @@ import logging
 from typing import Annotated
 
 import jwt as pyjwt
-from celine.sdk.auth import JwtUser, OidcClientCredentialsProvider
+from celine.sdk.auth import PLATFORM_ADMIN_ROLE, JwtUser, OidcClientCredentialsProvider
 from celine.sdk.auth.jwt import Organization
 from celine.sdk.dt import DTClient
 from celine.sdk.nudging import NudgingAdminClient
@@ -127,12 +127,13 @@ def _development_user() -> JwtUser:
 
     Two fixtures, because the policy now has two branches that must both be
     exercisable locally: `DEV_USER_PROFILE=manager` is an organization-scoped
-    manager of one REC, `DEV_USER_PROFILE=admin` is a realm admin who belongs to
-    no organization and sees every REC the registry lists.
+    manager of one REC, `DEV_USER_PROFILE=admin` holds the `platform-admin` realm
+    role, belongs to no organization and sees every REC the registry lists.
 
     The claim shape is the one a real KC 26.4 token carries, measured against the
     celine realm: per-organization `type` **flattened** rather than nested under
-    `attributes`, and group names carrying a leading slash. A fixture that models
+    `attributes`, group names carrying a leading slash, and realm roles in
+    `realm_access.roles` rather than in `groups`. A fixture that models
     the shape wrongly is a fixture that passes while production denies.
     """
     admin = settings.dev_user_profile == "admin"
@@ -143,7 +144,7 @@ def _development_user() -> JwtUser:
         "name": settings.dev_user_name,
         "preferred_username": "community-manager-dev",
         "locale": "it",
-        "groups": ["/admins"] if admin else [],
+        "realm_access": {"roles": [PLATFORM_ADMIN_ROLE] if admin else []},
         "scope": _DEV_SCOPE,
         "organization": {}
         if admin

@@ -18,8 +18,11 @@ and Digital Twin URL, then verify:
   not manage returns `403` whether or not it exists;
 - a manager holding `managers` in one REC and a lesser group in another is refused the second one —
   the case a flattened group list used to allow;
-- a realm `/admins` badge lists every REC the registry knows, while a realm `/managers` badge grants
-  no REC; managers must hold `/managers` inside the matching REC organization;
+- the `platform-admin` realm role lists every REC the registry knows, and `GET /api/me` reports it
+  in `platformRoles`; an organization's `admins` is not a platform admin and lists that REC only;
+  a realm group still present in a token (`/admins`, `/managers`) and any other realm role
+  (`admin`, `manager`, …) grant no REC; managers must hold `/managers` inside the matching REC
+  organization;
 - a member of a Keycloak organization that is not typed `rec` is refused, and so is a member of one
   carrying no `type` at all;
 - with one REC the dashboard opens straight into it; with several the picker appears, the choice is
@@ -63,8 +66,8 @@ and Digital Twin URL, then verify:
   requested), while `DELETE …/meter` still detaches their meter; the members list carries each
   member's `status`, from which the dashboard decides which actions to offer
   ([ADR-0004](decisions/ADR-0004-a-name-meets-a-sensor-id-only-in-the-meter-dialog.md));
-- a REC organization's `admins` or `managers` and a realm `/admins` member hold `members.meter` on
-  that REC; a manager of another REC, a realm `/managers` badge and a service token holding
+- a REC organization's `admins` or `managers` and a `platform-admin` holder hold `members.meter` on
+  that REC; a manager of another REC, a realm `/admins` or `/managers` group and a service token holding
   `community.admin` are refused it. Without `REC_REGISTRY_ASSETS_WRITE_SCOPE` or a registry URL,
   `GET /api/me` does not report it;
 - the BFF requests `rec-registry.assets.write` only for the meter write. Every meter press that reaches the
@@ -90,8 +93,8 @@ and Digital Twin URL, then verify:
   outage answers `502 digital_twin_unavailable`, a refused Digital Twin token `502
   digital_twin_refused`, and neither is a `500` or cached; no shape or coordinate is logged. A
   manager of another REC is refused `403` before the registry or the Digital Twin is asked;
-- a REC organization's `admins` or `managers` and a realm `/admins` member hold `members.edit` on
-  that REC; a manager of another REC, a realm `/managers` badge and a service token holding
+- a REC organization's `admins` or `managers` and a `platform-admin` holder hold `members.edit` on
+  that REC; a manager of another REC, a realm `/admins` or `/managers` group and a service token holding
   `community.admin` are refused it. Without `REC_REGISTRY_PROFILE_WRITE_SCOPE` or a registry URL,
   `GET /api/me` does not report it;
 - the BFF requests `rec-registry.members.profile.write` only for the profile write, and writes

@@ -1,7 +1,7 @@
 """Which RECs a caller may open, and what they may do in each.
 
 The **REC registry is the REC universe**. It answers "which RECs exist" for a
-realm admin and an organization-scoped manager alike: the caller's organization
+platform admin and an organization-scoped manager alike: the caller's organization
 aliases are *matched against* the registry rather than trusted on their own, so a
 Keycloak organization aliased for a REC the registry does not know is not listed.
 
@@ -40,7 +40,7 @@ class RecAccess:
 class RegistryUnavailable(RuntimeError):
     """The registry could not be reached and the caller's list has no other source.
 
-    Raised only for a caller whose grant is realm-level, because their REC list
+    Raised only for a caller whose grant is platform-wide, because their REC list
     exists nowhere but the registry. An organization-scoped manager's list is in
     their token, so they are served from it instead.
     """
@@ -82,14 +82,15 @@ async def accessible_recs(
     """The RECs *user* holds at least one capability on, and whether the registry answered.
 
     Raises `RegistryUnavailable` when the registry is unreachable *and* the caller
-    holds nothing at organization level — a realm admin, whose list has no other
+    holds nothing at organization level — a platform admin, whose list has no other
     source. Answering 403 there would tell an administrator they have no access
     when the truth is that a downstream is down.
     """
-    # A realm-level grant is organization-blind, so it is asked with no REC:
-    # `granted_by_org_group` is guarded against a null organization and cannot
-    # answer, leaving the realm branch as the only one that can.
-    realm_wide = (await policy.allow_console(user, None)).allowed
+    # The platform-wide grant (the `platform-admin` realm role) is
+    # organization-blind, so it is asked with no REC: `granted_by_org_group` is
+    # guarded against a null organization and cannot answer, leaving the platform
+    # branch as the only one that can.
+    platform_wide = (await policy.allow_console(user, None)).allowed
     own = rec_aliases(user)
 
     registry_communities = await _registry_communities(registry)
@@ -97,7 +98,7 @@ async def accessible_recs(
         if not own:
             raise RegistryUnavailable("the REC registry did not answer")
         candidates = {key: _derived_name(key) for key in own}
-    elif realm_wide:
+    elif platform_wide:
         candidates = registry_communities
     else:
         candidates = {key: name for key, name in registry_communities.items() if key in set(own)}
