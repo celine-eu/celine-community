@@ -73,6 +73,11 @@ required_org_groups := {
 	"members.invite": {"admins", "managers"},
 	"members.meter": {"admins", "managers"},
 	"members.edit": {"admins", "managers"},
+	# Releasing a member ends their membership: data sharing withdrawn, dataspace
+	# credential revoked, login removed from the REC, registry member inactive.
+	# The REC's administrators decide that, not its managers (requester,
+	# 2026-10-05), which is also what onboarding re-checks from the forwarded token.
+	"members.release": {"admins"},
 }
 
 # The platform-wide grant: a Keycloak realm role, never a group. It reaches every
@@ -116,9 +121,10 @@ service_scopes := {
 # or detaches a member's meter, which puts a name beside a sensor id in one dialog
 # and changes whose readings the meter's rows are (ADR-0004). `members.edit`
 # corrects a member's role or area, which changes how their meter's rows are
-# settled from the next pipeline run (ADR-0003). A service that could do any of
-# them through this BFF would be a way round all four.
-person_only_actions := {"members.read", "members.invite", "members.meter", "members.edit"}
+# settled from the next pipeline run (ADR-0003). `members.release` ends a person's
+# membership of the REC. A service that could do any of them through this BFF
+# would be a way round all five.
+person_only_actions := {"members.read", "members.invite", "members.meter", "members.edit", "members.release"}
 
 known_action if required_org_groups[input.action.name]
 
@@ -213,4 +219,6 @@ reason := "granted by platform role" if {
 	input.subject.claims.organization != input.resource.attributes.community_key
 } else := "the caller's organization is not a REC" if {
 	input.subject.claims.org_type != "rec"
+} else := "REC admins group required" if {
+	not "managers" in required_org_groups[input.action.name]
 } else := "REC admins or managers group required"

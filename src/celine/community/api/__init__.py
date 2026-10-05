@@ -9,6 +9,7 @@ from celine.community.api.flexibility import router as flexibility_router
 from celine.community.api.member_emails import router as member_emails_router
 from celine.community.api.member_meter import router as member_meter_router
 from celine.community.api.member_profile import router as member_profile_router
+from celine.community.api.member_release import router as member_release_router
 from celine.community.api.member_sends import router as member_sends_router
 from celine.community.api.members import router as members_router
 from celine.community.api.objectives import router as objectives_router
@@ -26,6 +27,7 @@ __all__ = [
     "member_emails_router",
     "member_meter_router",
     "member_profile_router",
+    "member_release_router",
     "member_sends_router",
     "members_router",
     "objectives_router",

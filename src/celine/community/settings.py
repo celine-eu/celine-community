@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     # other checkout. Unset, the send buttons are not offered.
     onboarding_url: str | None = None
     onboarding_scope: str = "onboarding.members.invite"
+    # Asked for only when a REC admin releases a member, never as part of the email
+    # token: a token that can send an invitation must not be able to end a
+    # membership. An optional scope of the BFF's client. Empty turns the release
+    # action off, and `GET /api/me` then does not report `members.release`.
+    onboarding_release_scope: str | None = "onboarding.members.release"
     downstream_timeout_seconds: float = Field(default=12.0, gt=0, le=120)
     aggregate_cache_ttl_seconds: float = Field(default=30.0, gt=0, le=3600)
 

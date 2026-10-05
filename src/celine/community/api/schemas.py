@@ -795,6 +795,33 @@ class MemberEmailSent(ApiModel):
     lifespan_seconds: int
 
 
+class MemberReleaseStep(ApiModel):
+    """One step of a release, as onboarding reported it, without its English detail.
+
+    `step` is `dataspace_share`, `dataspace_identity`, `keycloak_user` or
+    `rec_registry_member`; `status` is `done`, `skipped`, `failed` or `blocked`.
+    `code` says why; new codes may be added, so the dashboard shows one it does not
+    know generically. Onboarding's `detail` sentence is logged here, never returned.
+    """
+
+    step: str
+    status: str
+    code: str
+
+
+class MemberReleased(ApiModel):
+    """A release that ran, completely (`released`) or not (`partial`).
+
+    `partial` means at least one step failed or was not attempted; releasing again
+    is the retry, and steps already done answer `done` again.
+    """
+
+    member_key: str
+    state: str
+    source: str | None = None
+    steps: list[MemberReleaseStep]
+
+
 class MemberSend(ApiModel):
     """One press, as the audit row recorded it, with the name read back at display time."""
 

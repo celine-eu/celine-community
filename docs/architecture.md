@@ -46,11 +46,14 @@ through `partial` and `missingSources` in overview responses.
 The one exception is the members surface. Participant **names** are read through from the REC
 registry on each request, so a manager can find a person, and are not persisted, cached or logged
 ([ADR-0002](decisions/ADR-0002-members-by-name-from-the-registry-and-sends-through-onboarding.md)).
-`members.read`, `members.invite`, `members.meter` and `members.edit` are person-only actions. None has a service
+`members.read`, `members.invite`, `members.meter`, `members.edit` and `members.release` are person-only actions. None has a service
 scope, and `community.admin` does not grant them. `members.invite` is reported by `GET /api/me` only when
 `ONBOARDING_URL` is set. A send reaches the provisioning service only through onboarding, with this
 BFF's token and the manager's forwarded token. The audit row names the member key, and the sends
-view reads those rows back with names resolved at read time.
+view reads those rows back with names resolved at read time. `members.release` is granted to a
+REC's `admins` (and `platform-admin`) only, never to its `managers`; it is delegated to onboarding
+like a send, with its own scope, and reported only when `ONBOARDING_URL` and
+`ONBOARDING_RELEASE_SCOPE` are set.
 
 A manager attaches and detaches a member's meter under `members.meter`. The BFF writes the meter
 asset to the REC registry directly, with a token asked for `rec-registry.assets.write` for the write

@@ -64,12 +64,17 @@ async def allowed(caller: JwtUser, action: str, community_key: str | None) -> bo
     return (await policy.allow(caller, action, community_key)).allowed
 
 
+#: Actions a REC's `admins` hold and its `managers` do not.
+ADMIN_ONLY_ACTIONS = ("members.release",)
+MANAGER_CAPABILITIES = tuple(a for a in CAPABILITIES if a not in ADMIN_ONLY_ACTIONS)
+
+
 # ---------------------------------------------------------------------------
 # The bug this policy was rewritten to fix
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("action", CAPABILITIES)
+@pytest.mark.parametrize("action", MANAGER_CAPABILITIES)
 async def test_a_manager_badge_in_one_rec_does_not_reach_another(action: str) -> None:
     """The whole point of reading the two group levels apart.
 
@@ -447,3 +452,77 @@ async def test_members_edit_is_not_granted_to_a_realm_group_or_another_recs_admi
     other_admin = user("other-admin", orgs={"rec-b": rec("/admins")})
     assert await allowed(other_admin, "members.edit", "rec-a") is False
     assert await allowed(other_admin, "members.edit", "rec-b") is True
+
+
+# ---------------------------------------------------------------------------
+# Releasing a member: the REC's admins, never its managers
+# ---------------------------------------------------------------------------
+
+
+async def test_a_rec_admin_may_release_a_member_of_their_own_rec_only() -> None:
+    admin = user("rec-admin", orgs={"rec-a": rec("/admins")}, scope="")
+    assert await allowed(admin, "members.release", "rec-a") is True
+    assert await allowed(admin, "members.release", "rec-b") is False
+    decision = await policy.allow(admin, "members.release", "rec-a")
+    assert decision.reason == "granted by organization group"
+
+
+async def test_a_rec_manager_may_not_release_a_member() -> None:
+    """Requester, 2026-10-05: only REC admins release."""
+    decision = await policy.allow(MANAGER_OF_A, "members.release", "rec-a")
+    assert decision.allowed is False
+    assert decision.reason == "REC admins group required"
+    assert "members.release" not in await policy.capabilities(MANAGER_OF_A, "rec-a")
+    # Everything else a manager does is unchanged.
+    assert await policy.capabilities(MANAGER_OF_A, "rec-a") == frozenset(MANAGER_CAPABILITIES)
+
+
+async def test_a_platform_admin_may_release_in_every_rec() -> None:
+    assert await allowed(PLATFORM_ADMIN, "members.release", "rec-a") is True
+    assert await allowed(PLATFORM_ADMIN, "members.release", "rec-z") is True
+
+
+@pytest.mark.parametrize("group", ["editors", "viewers", "participants"])
+async def test_no_other_rec_group_may_release(group: str) -> None:
+    caller = user("member", orgs={"rec-a": rec(f"/{group}")})
+    assert await allowed(caller, "members.release", "rec-a") is False
+
+
+async def test_releasing_is_not_granted_to_a_realm_group_or_another_recs_admin() -> None:
+    assert await allowed(user("ra", groups=["/admins"]), "members.release", "rec-a") is False
+    other_admin = user("other-admin", orgs={"rec-b": rec("/admins")})
+    assert await allowed(other_admin, "members.release", "rec-a") is False
+    assert await allowed(other_admin, "members.release", "rec-b") is True
+
+
+async def test_no_service_may_release_not_even_community_admin() -> None:
+    for scope in ("community.admin", "onboarding.members.release", "community.members.release"):
+        decision = await policy.allow(service(scope), "members.release", "rec-a")
+        assert decision.allowed is False, scope
+        assert decision.reason == "only a person may perform this action, never a service"
+
+
+async def test_me_offers_members_release_only_when_onboarding_and_its_scope_are_set(
+    monkeypatch,
+) -> None:
+    from celine.community.services.recs import accessible_recs
+    from celine.community.settings import settings
+
+    admin = user("rec-admin", orgs={"rec-a": rec("/admins")})
+    monkeypatch.setattr(settings, "onboarding_url", "http://onboarding.internal")
+    monkeypatch.setattr(settings, "onboarding_release_scope", "onboarding.members.release")
+    recs, _ = await accessible_recs(admin, _OneRecRegistry())
+    assert "members.release" in recs[0].capabilities
+    recs, _ = await accessible_recs(MANAGER_OF_A, _OneRecRegistry())
+    assert "members.release" not in recs[0].capabilities
+
+    for url, scope in (
+        ("http://onboarding.internal", ""),
+        ("http://onboarding.internal", None),
+        (None, "onboarding.members.release"),
+    ):
+        monkeypatch.setattr(settings, "onboarding_url", url)
+        monkeypatch.setattr(settings, "onboarding_release_scope", scope)
+        recs, _ = await accessible_recs(admin, _OneRecRegistry())
+        assert "members.release" not in recs[0].capabilities, (url, scope)
+        assert "members.read" in recs[0].capabilities

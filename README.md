@@ -36,6 +36,7 @@ the Grid frontend and `celine-grid` backend form their own product surface.
 - `GET /api/communities/{community_key}/areas`
 - `GET /api/communities/{community_key}/areas/shapes`
 - `POST /api/communities/{community_key}/members/{member_key}/invitation|password-reset`
+- `POST /api/communities/{community_key}/members/{member_key}/release`
 - `GET|PUT|DELETE /api/communities/{community_key}/members/{member_key}/meter`
 - `GET /api/communities/{community_key}/members/sends?member_key=&actor=&intent=&code=&from=&to=&cursor=`
 - `GET /api/communities/{community_key}/exports/{devices|flexibility|points|nudging|alerts}?format=csv|xlsx`
@@ -73,6 +74,26 @@ that reaches onboarding writes one `audit_events` row (`community.member.invitat
 `community.member.password_reset`, resource `registry_member`, the member key, and
 `{code, kind, lifespan_seconds, status}`). The rows are the source of `…/members/sends`, which
 resolves names at read time.
+
+**Release member** (`members.release`, person-only, granted to the REC organization's `admins` and
+the `platform-admin` role only; `managers` are refused) ends a member's membership so that the
+person can join another community. Onboarding does the work, reached the same way as the emails:
+`POST /api/admin/communities/{community}/members/{member_key}/release` with the BFF's own token,
+asked for `ONBOARDING_RELEASE_SCOPE` (`onboarding.members.release`, an optional scope of
+`svc-community`) and nothing else, and the admin's token as `X-Acting-User-Token`. Onboarding
+withdraws the member's data sharing, revokes their dataspace credential, removes their login from
+the REC's organization and sets the registry member `inactive`; nothing is deleted. A release that
+ran is a `200` `{memberKey, state, source, steps}`, also when part of it failed: `state` is
+`released` or `partial`, and `steps` are onboarding's four steps in order, each
+`{step, status, code}`. Onboarding's English `detail` per step is logged, never returned. Releasing
+again is the retry. Refusals are mapped as for the emails (`member_not_found`,
+`community_not_served`, `community_ambiguous`, `registry_unavailable` and `admin_not_configured`
+pass through; an onboarding `401`/`403` or a token Keycloak refuses is `502 onboarding_refused`; an
+unreachable onboarding `503 onboarding_unavailable`). Without `ONBOARDING_URL` or
+`ONBOARDING_RELEASE_SCOPE` the route answers `503` and `GET /api/me` does not report
+`members.release`. Every press that reaches onboarding writes one `audit_events` row
+(`community.member.release`, resource `registry_member`, the member key, and
+`{code, status, source, steps}` with each step's code).
 
 **Measurements**, **Attach meter** and **Detach meter** (`members.meter`, person-only like
 `members.read`, and granted to the same groups) show a member's delivery points (POD, the DSO's
@@ -236,7 +257,10 @@ The member writes cross three services, so the order matters on every deployment
    `rec-registry.members.profile.write` as optional scopes (celine-policies `clients.yaml`, applied
    with `celine-policies keycloak sync`). Without them Keycloak refuses the write token and every
    press answers `502 registry_refused`. Setting `REC_REGISTRY_ASSETS_WRITE_SCOPE` or
-   `REC_REGISTRY_PROFILE_WRITE_SCOPE` empty turns that action off instead.
+   `REC_REGISTRY_PROFILE_WRITE_SCOPE` empty turns that action off instead. **Release member**
+   needs `onboarding.members.release` as an optional scope of `svc-community` the same way, and an
+   onboarding that serves the release route; without the scope every release answers
+   `502 onboarding_refused`, and `ONBOARDING_RELEASE_SCOPE` set empty turns the action off.
 3. **This BFF**, built with `celine-sdk>=1.21.0`.
 
 The area map also needs the Digital Twin's `boundary_shape` fetcher (dataset-api with

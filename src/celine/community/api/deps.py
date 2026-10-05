@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from celine.community.db import get_db
 from celine.community.security.policy import policy
+from celine.community.services.onboarding_release import OnboardingReleaseClient
 from celine.community.services.recs import has_console_access
 from celine.community.services.user_feedback import RoiFeedbackClient, UserFeedbackClient
 from celine.community.settings import settings
@@ -88,6 +89,17 @@ onboarding_token_provider = OidcClientCredentialsProvider(
     client_id=settings.oidc.client_id or "",
     client_secret=settings.oidc.client_secret or "",
     scope=settings.onboarding_scope,
+    timeout=settings.downstream_timeout_seconds,
+    verify_ssl=settings.oidc.verify_ssl,
+)
+
+#: Only for releasing a member. Its own provider, so the email token never carries
+#: the release scope: sending an invitation must not be able to end a membership.
+onboarding_release_token_provider = OidcClientCredentialsProvider(
+    base_url=settings.oidc.base_url,
+    client_id=settings.oidc.client_id or "",
+    client_secret=settings.oidc.client_secret or "",
+    scope=settings.onboarding_release_scope,
     timeout=settings.downstream_timeout_seconds,
     verify_ssl=settings.oidc.verify_ssl,
 )
@@ -342,6 +354,14 @@ async def require_members_edit(
     return await _require("members.edit", request, community_key, user)
 
 
+async def require_members_release(
+    request: Request,
+    community_key: str,
+    user: Annotated[JwtUser, Depends(get_user_from_request)],
+) -> JwtUser:
+    return await _require("members.release", request, community_key, user)
+
+
 def get_dt_client() -> DTClient:
     if not settings.digital_twin_api_url:
         raise HTTPException(status_code=503, detail="Digital Twin API not configured")
@@ -417,6 +437,24 @@ def get_onboarding_client() -> OnboardingAdminClient:
     )
 
 
+def get_onboarding_releaser() -> OnboardingReleaseClient:
+    """The onboarding client for a member release, and for nothing else.
+
+    It carries `onboarding.members.release`; the member emails keep
+    `get_onboarding_client` and its `onboarding.members.invite` token.
+    """
+    if not settings.onboarding_url:
+        raise HTTPException(status_code=503, detail={"code": "onboarding_not_configured"})
+    if not settings.onboarding_release_scope:
+        raise HTTPException(status_code=503, detail={"code": "release_not_configured"})
+    return OnboardingReleaseClient(
+        settings.onboarding_url,
+        token_provider=onboarding_release_token_provider,
+        timeout=settings.downstream_timeout_seconds,
+        verify_ssl=settings.oidc.verify_ssl,
+    )
+
+
 UserDep = Annotated[JwtUser, Depends(get_user_from_request)]
 ConsoleUserDep = Annotated[JwtUser, Depends(require_console_access)]
 CommunityReadDep = Annotated[JwtUser, Depends(require_community_read)]
@@ -431,6 +469,7 @@ MembersReadDep = Annotated[JwtUser, Depends(require_members_read)]
 MembersInviteDep = Annotated[JwtUser, Depends(require_members_invite)]
 MembersMeterDep = Annotated[JwtUser, Depends(require_members_meter)]
 MembersEditDep = Annotated[JwtUser, Depends(require_members_edit)]
+MembersReleaseDep = Annotated[JwtUser, Depends(require_members_release)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 DTDep = Annotated[DTClient, Depends(get_dt_client)]
 RegistryDep = Annotated[RecRegistryAdminClient, Depends(get_registry_client)]
@@ -438,5 +477,6 @@ RegistryAssetsWriterDep = Annotated[RecRegistryAdminClient, Depends(get_registry
 RegistryProfileWriterDep = Annotated[RecRegistryAdminClient, Depends(get_registry_profile_writer)]
 NudgingDep = Annotated[NudgingAdminClient, Depends(get_nudging_client)]
 OnboardingDep = Annotated[OnboardingAdminClient, Depends(get_onboarding_client)]
+OnboardingReleaseDep = Annotated[OnboardingReleaseClient, Depends(get_onboarding_releaser)]
 UserFeedbackDep = Annotated[UserFeedbackClient, Depends(get_user_feedback_client)]
 RoiFeedbackDep = Annotated[RoiFeedbackClient, Depends(get_roi_feedback_client)]

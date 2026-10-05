@@ -47,6 +47,7 @@ CAPABILITIES: tuple[str, ...] = (
     "members.invite",
     "members.meter",
     "members.edit",
+    "members.release",
 )
 
 
@@ -232,6 +233,9 @@ class CommunityAccessPolicy:
 
     async def allow_members_edit(self, user: JwtUser, community_key: str) -> Decision:
         return await self._evaluate(user, "members.edit", community_key)
+
+    async def allow_members_release(self, user: JwtUser, community_key: str) -> Decision:
+        return await self._evaluate(user, "members.release", community_key)
 
 
 policy = CommunityAccessPolicy()

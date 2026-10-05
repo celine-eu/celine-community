@@ -98,7 +98,12 @@ Member emails go to onboarding, never to the provisioning service:
 provider with `ONBOARDING_SCOPE` (`onboarding.members.invite`, an optional scope of `svc-community`).
 The manager's token goes in `X-Acting-User-Token`, never in `x-auth-request-access-token`, which
 onboarding refuses on these routes. There is no cache and no retry: sending again is the manager's
-decision. The sends view resolves names for its page of rows from the same registry
+decision. A member release goes the same way, to
+`POST /api/admin/communities/{community}/members/{member_key}/release`, with a token from a separate
+provider asked for `ONBOARDING_RELEASE_SCOPE` (`onboarding.members.release`, an optional scope of
+`svc-community`) only, so the email token can never end a membership. The installed `celine-sdk`
+has no wrapper for it; `services/onboarding_release.py` makes the call with the SDK's header and
+error type. The sends view resolves names for its page of rows from the same registry
 `list_members` call, reading at most ten pages of 500.
 
 Feedback from other browser applications remains in its owning service. The manager BFF proxies

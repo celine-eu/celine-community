@@ -945,7 +945,14 @@ def test_one_row_per_press_and_no_sensor_id_in_it_or_the_log(
     else:
         downstream.delete(ASSET_URL).mock(return_value=put_answer)
 
-    with caplog.at_level(logging.DEBUG):
+    # The SDK sets `celine` to LOG_LEVEL and holds `httpx` and `httpcore` at WARNING;
+    # a deployment may lower any of them, so the capture opens each one to DEBUG.
+    with (
+        caplog.at_level(logging.DEBUG),
+        caplog.at_level(logging.DEBUG, logger="celine"),
+        caplog.at_level(logging.DEBUG, logger="httpx"),
+        caplog.at_level(logging.DEBUG, logger="httpcore"),
+    ):
         attach(pod=POD) if press == "attach" else detach()
 
     [row] = session.audit_rows()
@@ -969,9 +976,17 @@ def test_one_row_per_press_and_no_sensor_id_in_it_or_the_log(
     assert SENSOR not in written
     assert POD not in written
 
+    messages = {record.name: [] for record in caplog.records}
+    for record in caplog.records:
+        messages[record.name].append(record.getMessage())
     logged = "\n".join(record.getMessage() for record in caplog.records)
-    # httpx logs every request URL, and the registry's asset path carries the id.
-    assert any("HTTP Request" in record.getMessage() for record in caplog.records)
+    # The capture holds the lines that could carry the id: the press's own line and
+    # httpx's line for the registry's asset path, whose key is `meter-<sensor id>`.
+    assert any(
+        f"press={press}" in message
+        for message in messages.get("celine.community.api.member_meter", [])
+    )
+    assert any(f"{MEMBER_URL}/assets/" in message for message in messages.get("httpx", []))
     assert SENSOR not in logged
     assert POD not in logged
     assert "Anna" not in logged and "anna@example.org" not in logged

@@ -124,6 +124,11 @@ def profile_writes_configured() -> bool:
     return bool(settings.rec_registry_url and settings.rec_registry_profile_write_scope)
 
 
+def release_configured() -> bool:
+    """Whether a member can be released here: onboarding, and the release scope."""
+    return bool(settings.onboarding_url and settings.onboarding_release_scope)
+
+
 def offered(capabilities: frozenset[str]) -> frozenset[str]:
     """The granted capabilities this deployment can honour.
 
@@ -132,6 +137,8 @@ def offered(capabilities: frozenset[str]) -> frozenset[str]:
     `members.meter` writes to the REC registry with its own scope, and is dropped the
     same way when the registry URL or `REC_REGISTRY_ASSETS_WRITE_SCOPE` is unset, and
     `members.edit` when the registry URL or `REC_REGISTRY_PROFILE_WRITE_SCOPE` is.
+    `members.release` goes through onboarding with its own scope, and is dropped when
+    `ONBOARDING_URL` or `ONBOARDING_RELEASE_SCOPE` is unset.
     The policy still decides who may press; this decides only whether pressing can
     work here.
     """
@@ -142,6 +149,8 @@ def offered(capabilities: frozenset[str]) -> frozenset[str]:
         unavailable.add("members.meter")
     if not profile_writes_configured():
         unavailable.add("members.edit")
+    if not release_configured():
+        unavailable.add("members.release")
     return capabilities - unavailable
 
 
