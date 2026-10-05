@@ -2,6 +2,8 @@
 
 import logging
 
+from celine.sdk.audit import configure_audit
+from celine.sdk.posture import docs_urls
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
@@ -33,6 +35,7 @@ def create_app() -> FastAPI:
     # Before anything is served: outside CELINE_ENV=dev a development default
     # (database password, client secret, local issuer, fixture auth) refuses to start.
     posture_guard(settings).enforce()
+    configure_audit("community-api")
     if settings.dev_auth_enabled:
         logger.warning(
             "Development authentication is enabled — every request is the %s fixture",
@@ -42,9 +45,14 @@ def create_app() -> FastAPI:
         title="CELINE Community Manager BFF",
         description="Backend-for-frontend for the CELINE REC Manager Dashboard",
         version="1.0.0",
-        openapi_url="/api/openapi.json",
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
+        # Only under CELINE_ENV=dev, or with CELINE_PUBLIC_DOCS=true; elsewhere 404.
+        # `app.openapi()` (scripts/export_openapi.py) is unaffected.
+        **docs_urls(
+            docs_url="/api/docs",
+            redoc_url="/api/redoc",
+            openapi_url="/api/openapi.json",
+            env=settings.posture_env,
+        ),
         openapi_tags=TAGS,
         generate_unique_id_function=stable_operation_id,
         contact={"name": "CELINE", "url": "https://celine-eu.github.io"},

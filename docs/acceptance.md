@@ -37,6 +37,12 @@ and Digital Twin URL, then verify:
   their key shows the key with "no name on record". No name is stored in the database or written to
   the BFF log;
 - a service token holding `community.admin` is refused `GET …/members`;
+- every refusal — a `403` from the access policy, `/api/me` for a caller who manages nothing, a
+  presented token that does not verify — writes one `celine.audit` line naming the caller by `sub`
+  and client id (no caller for an unverified token), the action and the REC key, never an email or
+  a name;
+- outside `CELINE_ENV=dev`, `/api/docs`, `/api/redoc` and `/api/openapi.json` answer `404` unless
+  `CELINE_PUBLIC_DOCS=true`;
 - with `ONBOARDING_URL` set, **Send invitation** on a member without a password delivers the email
   in the member's locale. **Reset password** on that member answers `no_password`. A second
   invitation within the cooldown answers `cooldown` with a time to retry. The dashboard translates

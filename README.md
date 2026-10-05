@@ -219,7 +219,9 @@ Unset or any other value is hardened: the dev database password, a client secret
 client id, the SDK's default issuer and `DEV_AUTH_ENABLED` refuse to start, and the access policy
 fails closed. See [docs/development.md](docs/development.md#deployment-posture).
 
-The API listens on `http://localhost:8019`; OpenAPI is available at `/api/docs`.
+The API listens on `http://localhost:8019`; OpenAPI is available at `/api/docs` under
+`CELINE_ENV=dev`, or with `CELINE_PUBLIC_DOCS=true`. Elsewhere `/api/docs`, `/api/redoc` and
+`/api/openapi.json` answer `404`; `task openapi` emits the contract either way.
 
 ## Deployment order
 

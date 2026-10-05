@@ -4,6 +4,7 @@ import logging
 from typing import Annotated
 
 import jwt as pyjwt
+from celine.sdk.audit import audit_denied
 from celine.sdk.auth import PLATFORM_ADMIN_ROLE, JwtUser, OidcClientCredentialsProvider
 from celine.sdk.auth.jwt import Organization
 from celine.sdk.dt import DTClient
@@ -27,6 +28,15 @@ logger = logging.getLogger(__name__)
 #: are one string on this platform. Never a real community's key: this is a
 #: public repository.
 DEV_COMMUNITY_KEY = "example_rec"
+
+#: The action a refusal at the token check is recorded under on `celine.audit`.
+#: Every other refusal is recorded under the policy action it was refused.
+AUTHENTICATE = "authenticate"
+
+NO_REC_DETAIL = (
+    "No REC grants you access. Ask a REC administrator to add you to its "
+    "Keycloak organization as a manager."
+)
 
 dt_token_provider = OidcClientCredentialsProvider(
     base_url=settings.oidc.base_url,
@@ -162,6 +172,14 @@ def _development_user() -> JwtUser:
     )
 
 
+def _token_failure(exc: Exception) -> str:
+    if isinstance(exc, pyjwt.ExpiredSignatureError):
+        return "token_expired"
+    if isinstance(exc, pyjwt.InvalidTokenError):
+        return "token_invalid"
+    return "token_unverified"
+
+
 def get_user_from_request(request: Request) -> JwtUser:
     if settings.dev_auth_enabled and settings.is_dev:
         return _development_user()
@@ -171,15 +189,43 @@ def get_user_from_request(request: Request) -> JwtUser:
         raise HTTPException(status_code=401, detail="Missing authentication token")
     try:
         return JwtUser.from_token(token, oidc=settings.oidc)
-    except pyjwt.ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail="Token has expired") from exc
-    except pyjwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
     except Exception as exc:
+        # A presented token that does not verify: recorded with no caller, because
+        # the claims of an unverified token are not trusted.
+        audit_denied(AUTHENTICATE, reason=_token_failure(exc), request=request)
+        if isinstance(exc, pyjwt.ExpiredSignatureError):
+            raise HTTPException(status_code=401, detail="Token has expired") from exc
+        if isinstance(exc, pyjwt.InvalidTokenError):
+            raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
         raise HTTPException(status_code=401, detail="Authentication failed") from exc
 
 
+def refuse(
+    action: str,
+    user: JwtUser,
+    request: Request,
+    *,
+    community_key: str | None = None,
+    reason: str | None = None,
+    detail: str | None = None,
+) -> HTTPException:
+    """The ``403`` for a refused *action*, recorded on ``celine.audit`` first.
+
+    The record names the caller by ``sub`` and client id and the REC by its key;
+    never an email or a name. ``reason`` is the policy's short reason.
+    """
+    audit_denied(
+        action,
+        caller=user,
+        resource=community_key,
+        reason=reason or "denied",
+        request=request,
+    )
+    return HTTPException(status_code=403, detail=detail or reason or "access denied")
+
+
 async def require_console_access(
+    request: Request,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
     """Signed in, and a manager of *something*.
@@ -189,170 +235,111 @@ async def require_console_access(
     opened is the path parameter every other dependency already receives.
     """
     if not await has_console_access(user):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "No REC grants you access. Ask a REC administrator to add you to its "
-                "Keycloak organization as a manager."
-            ),
-        )
+        raise refuse("console.read", user, request, reason="no_rec", detail=NO_REC_DETAIL)
+    return user
+
+
+async def _require(action: str, request: Request, community_key: str, user: JwtUser) -> JwtUser:
+    decision = await policy.allow(user, action, community_key)
+    if not decision.allowed:
+        raise refuse(action, user, request, community_key=community_key, reason=decision.reason)
     return user
 
 
 async def require_community_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_community_read(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Community read denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("community.read", request, community_key, user)
 
 
 async def require_objectives_write(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_objectives_write(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("objectives.write", request, community_key, user)
 
 
 async def require_devices_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_devices_read(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Device data denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("devices.read", request, community_key, user)
 
 
 async def require_flexibility_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_flexibility_read(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("flexibility.read", request, community_key, user)
 
 
 async def require_gamification_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_gamification_read(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("gamification.read", request, community_key, user)
 
 
 async def require_nudging_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_nudging_read(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("nudging.read", request, community_key, user)
 
 
 async def require_alerts_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_alerts_read(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("alerts.read", request, community_key, user)
 
 
 async def require_alerts_write(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_alerts_write(user, community_key)
-    if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("alerts.write", request, community_key, user)
 
 
 async def require_members_read(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_members_read(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Members read denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("members.read", request, community_key, user)
 
 
 async def require_members_invite(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_members_invite(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Member email denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("members.invite", request, community_key, user)
 
 
 async def require_members_meter(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_members_meter(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Member meter denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("members.meter", request, community_key, user)
 
 
 async def require_members_edit(
+    request: Request,
     community_key: str,
     user: Annotated[JwtUser, Depends(get_user_from_request)],
 ) -> JwtUser:
-    decision = await policy.allow_members_edit(user, community_key)
-    if not decision.allowed:
-        logger.warning(
-            "Member edit denied sub=%s community=%s reason=%s",
-            user.sub,
-            community_key,
-            decision.reason,
-        )
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
-    return user
+    return await _require("members.edit", request, community_key, user)
 
 
 def get_dt_client() -> DTClient:

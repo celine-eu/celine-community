@@ -1,9 +1,9 @@
 """Authenticated manager profile routes."""
 
 from celine.sdk.auth import organization_aliases, realm_roles
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
-from celine.community.api.deps import ConsoleUserDep, RegistryDep
+from celine.community.api.deps import NO_REC_DETAIL, ConsoleUserDep, RegistryDep, refuse
 from celine.community.api.schemas import CommunityAccess, MeResponse, MeUser
 from celine.community.services.recs import RegistryUnavailable, accessible_recs
 
@@ -23,7 +23,7 @@ async def ping(user: ConsoleUserDep) -> dict[str, bool]:
 
 
 @router.get("/me", response_model=MeResponse)
-async def me(user: ConsoleUserDep, registry: RegistryDep) -> MeResponse:
+async def me(request: Request, user: ConsoleUserDep, registry: RegistryDep) -> MeResponse:
     """The caller's identity and their per-REC capabilities.
 
     `403` when they manage nothing. A valid token that grants nothing is not an
@@ -42,13 +42,7 @@ async def me(user: ConsoleUserDep, registry: RegistryDep) -> MeResponse:
         ) from exc
 
     if not recs:
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "No REC grants you access. Ask a REC administrator to add you to its "
-                "Keycloak organization as a manager."
-            ),
-        )
+        raise refuse("console.read", user, request, reason="no_rec", detail=NO_REC_DETAIL)
 
     claims = user.claims or {}
     return MeResponse(

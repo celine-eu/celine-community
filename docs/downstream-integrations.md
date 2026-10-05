@@ -112,6 +112,7 @@ notification-event portion of the flexibility chain are not yet available. These
 visible as partial data. The BFF alert workflow is real and persistent, but its production alert
 ingestion source is still to be connected.
 
-The public contract is available at `/api/openapi.json` and can be emitted deterministically with
-`task openapi`. Operation IDs are stable and unique so downstream SDK generation does not depend
+The public contract is served at `/api/openapi.json` under `CELINE_ENV=dev` (or with
+`CELINE_PUBLIC_DOCS=true`) and can be emitted deterministically with `task openapi` in any
+environment. Operation IDs are stable and unique so downstream SDK generation does not depend
 on router ordering.

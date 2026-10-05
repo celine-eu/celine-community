@@ -14,6 +14,7 @@ from celine.community.api.deps import (
     DbDep,
     RoiFeedbackDep,
     UserFeedbackDep,
+    refuse,
 )
 from celine.community.api.schemas import (
     FeedbackCreateRequest,
@@ -89,7 +90,13 @@ async def create_feedback(
     # feedback filed against another.
     decision = await policy.allow_console(user, body.community_key)
     if not decision.allowed:
-        raise HTTPException(status_code=403, detail=decision.reason or "access denied")
+        raise refuse(
+            "console.read",
+            user,
+            request,
+            community_key=body.community_key,
+            reason=decision.reason,
+        )
 
     screenshot_bytes: bytes | None = None
     screenshot_mime_type: str | None = None
