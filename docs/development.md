@@ -54,5 +54,4 @@ and the access policy fails closed: policies that do not load stop startup, and 
 error denies. In dev the same findings are one warning at startup, and a missing policy degrades
 to the fixture decision.
 
-`celine.sdk.posture` ships in the next celine-sdk release; until then the SDK must be the local
-editable checkout (TODO: raise the `celine-sdk` floor in `pyproject.toml` to that release).
+`celine.sdk.posture` ships in celine-sdk 2.0.0, the floor in `pyproject.toml`.
