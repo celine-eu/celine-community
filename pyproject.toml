@@ -15,7 +15,7 @@ dependencies = [
   # checkout (celine-dev `task dev:link`) carries both.
   # TODO: likewise `celine.sdk.audit` and `celine.sdk.posture.docs_urls` (main.py,
   # api/deps.py): raise to the first celine-sdk release that ships them.
-  "celine-sdk>=1.21.0",
+  "celine-sdk>=2.0.0",
   "fastapi>=0.136.1",
   "pydantic>=2.13.3",
   "pydantic-settings>=2.14.0",
