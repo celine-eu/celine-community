@@ -138,8 +138,8 @@ and Digital Twin URL, then verify:
 
 Core energy, meter, flexibility and points fetchers are deployed and have been exercised against
 the local governed datasets. Administrative population is read from the REC Registry. Final
-acceptance remains pending for objective actuals, pipeline status, nudging-event correlation,
-anti-gaming and alert-ingestion sources listed in `downstream-integrations.md`, and for a session
+acceptance remains pending for objective actuals, pipeline status, nudging-event correlation
+and alert-ingestion sources listed in `downstream-integrations.md`, and for a session
 with a real REC Manager.
 
 ## Pending: the end-to-end run

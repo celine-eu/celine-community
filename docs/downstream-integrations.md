@@ -25,8 +25,12 @@ database workflows such as alert mutations and objective writes are not cached.
 | Nudging | Nudging API `GET /admin/analytics/communities/{id}/conversion` |
 | Area map | `boundary_shape` (energy-community domain, open reference boundaries) |
 
-The Digital Twin now implements the energy, monitored-population, meter-health/device, flexibility
-and points fetchers in this table. They query governed datasets and return aggregates or technical
+The Digital Twin now implements the energy, monitored-population, meter-health/device, flexibility,
+points and anti-gaming fetchers in this table. Its manager fetchers (the population, meters,
+devices, flexibility and gamification rows above) admit a service only with
+`digital-twin.community.manage`, a default scope of `svc-community`; the BFF's own persona check
+runs first, and the REC it checked is the one it names to the twin. Anti-gaming severities arrive
+from the pipeline as `info` and `warning` and are shown as `low` and `medium`. They query governed datasets and return aggregates or technical
 `device_id` values only. Objective targets are persisted by the BFF, while governed objective
 actuals still require `rec_objective_progress_daily`. Administrative population is counted from
 active REC Registry members inside the BFF; participant records are discarded immediately and only
@@ -112,8 +116,8 @@ participant feedback to `WEBAPP_API_URL` and ROI-calculator feedback to `ROI_API
 uses the same list, screenshot and monotonic status contract for both sources. No feedback table is
 read across a service database boundary.
 
-`rec_pipeline_status`, `rec_anti_gaming_flags_community`, and the
-notification-event portion of the flexibility chain are not yet available. These gaps remain
+`rec_pipeline_status` and the notification-event portion of the flexibility chain are not yet
+available. These gaps remain
 visible as partial data. The BFF alert workflow is real and persistent, but its production alert
 ingestion source is still to be connected.
 

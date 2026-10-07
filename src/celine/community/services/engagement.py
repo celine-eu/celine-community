@@ -41,6 +41,11 @@ def _rows(result: Any) -> list[dict[str, Any]]:
     return [item.to_dict() if hasattr(item, "to_dict") else dict(item) for item in raw]
 
 
+#: The pipeline's flag severities (celine-pipelines `rec_anti_gaming_flags`) on the
+#: console's scale; a value already on the scale passes through.
+_FLAG_SEVERITY = {"info": "low", "warning": "medium"}
+
+
 async def _fetch(
     dt: DTClient,
     community_key: str,
@@ -150,6 +155,7 @@ class GamificationProvider:
             )
             flag_id = UUID(raw_id) if len(raw_id) == 36 else uuid5(NAMESPACE_URL, raw_id)
             severity = str(item.get("severity") or "medium")
+            severity = _FLAG_SEVERITY.get(severity, severity)
             items.append(
                 AntiGamingFlag(
                     id=flag_id,
