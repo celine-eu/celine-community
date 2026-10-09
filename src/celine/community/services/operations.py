@@ -26,13 +26,16 @@ from celine.community.api.schemas import (
     MeterGap,
     MeterGapsResponse,
     Period,
-    PipelineRun,
-    PipelineState,
     SortOrder,
 )
 
 logger = logging.getLogger(__name__)
 ROME = ZoneInfo("Europe/Rome")
+
+#: The pipeline run-state source the data-flow panel was designed for. The Digital
+#: Twin does not provide it (`docs/downstream-integrations.md`), so it is reported
+#: missing without a call.
+PIPELINE_STATUS_FETCHER = "rec_pipeline_status"
 
 
 def _period_days(period: Period) -> int:
@@ -334,30 +337,10 @@ class OperationalProvider:
         dt: DTClient,
     ) -> DataFlowResponse:
         devices, missing = await self._devices(community_key, period, dt)
-        pipeline_items = await _fetch(dt, community_key, "rec_pipeline_status", period)
-        if pipeline_items is None:
-            missing.append("rec_pipeline_status")
-        pipelines = []
-        for item in pipeline_items or []:
-            raw_state = str(item.get("state") or "unknown").lower()
-            state = cast(
-                PipelineState,
-                raw_state
-                if raw_state in {"success", "running", "failed", "stale", "unknown"}
-                else "unknown",
-            )
-            pipelines.append(
-                PipelineRun(
-                    id=str(item.get("id") or item.get("pipeline_id") or "unknown"),
-                    name=str(item.get("name") or item.get("pipeline_name") or "Pipeline"),
-                    state=state,
-                    last_run_at=_parse_datetime(item.get("last_run_at")),
-                    last_success_at=_parse_datetime(item.get("last_success_at")),
-                    duration_seconds=_number(item, "duration_seconds") or None,
-                    freshness_minutes=int(_number(item, "freshness_minutes")) or None,
-                    message=item.get("message"),
-                )
-            )
+        # Not asked for: the Digital Twin has no such fetcher, and every load paid a
+        # round trip and a warning to learn that again. Listed as missing, so the
+        # response stays partial and the panel says what it lacks.
+        missing.append(PIPELINE_STATUS_FETCHER)
         expected = sum(item.expected_intervals for item in devices)
         received = sum(item.received_intervals for item in devices)
         coverage = received / expected * 100 if expected else 0
@@ -371,5 +354,5 @@ class OperationalProvider:
             gap_count=sum(len(item.gaps) for item in devices),
             partial=bool(missing),
             missing_sources=missing,
-            pipelines=pipelines,
+            pipelines=[],
         )

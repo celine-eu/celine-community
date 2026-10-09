@@ -2,6 +2,7 @@
 
 import os
 from typing import Literal
+from urllib.parse import urlsplit
 
 from celine.sdk.posture import DEV, PostureGuard
 from celine.sdk.settings.models import OidcSettings, PoliciesSettings
@@ -110,11 +111,29 @@ class Settings(BaseSettings):
         return self
 
 
+#: The local stack's address of every upstream default. Outside dev a URL still on
+#: it was never set by the deployment, and every call to that upstream fails: on
+#: staging the feedback inboxes answered 502 for this reason.
+LOCAL_STACK_HOST = "host.docker.internal"
+
+#: The upstream URL settings, by the environment name a deployment sets them with.
+UPSTREAM_URLS = {
+    "DIGITAL_TWIN_API_URL": "digital_twin_api_url",
+    "REC_REGISTRY_URL": "rec_registry_url",
+    "FLEXIBILITY_API_URL": "flexibility_api_url",
+    "NUDGING_API_URL": "nudging_api_url",
+    "WEBAPP_API_URL": "webapp_api_url",
+    "ROI_API_URL": "roi_api_url",
+    "ONBOARDING_URL": "onboarding_url",
+}
+
+
 def posture_guard(settings: "Settings") -> PostureGuard:
     """Every development default this service ships, registered for refusal.
 
     Hardened (anything but CELINE_ENV=dev) `enforce()` raises with the full list;
-    in dev it logs one warning. DEV_AUTH_ENABLED is refused by the settings
+    in dev it logs one warning. An upstream URL left on `host.docker.internal` is
+    one of them. DEV_AUTH_ENABLED is refused by the settings
     validator already, and registered here as well so the list is complete.
     """
     guard = PostureGuard("community-api", env=settings.posture_env)
@@ -128,6 +147,16 @@ def posture_guard(settings: "Settings") -> PostureGuard:
         settings.dev_auth_enabled,
         "Leave it unset; every request must carry a real token.",
     )
+    # An unset URL turns its feature off (503) and is a decision; a local-stack one
+    # is a leftover.
+    for name, field in UPSTREAM_URLS.items():
+        url = getattr(settings, field)
+        if url and urlsplit(url).hostname == LOCAL_STACK_HOST:
+            guard.add(
+                name,
+                f"still points at the local stack ({url})",
+                "Set it to the service's in-cluster address, or empty to turn the feature off.",
+            )
     return guard
 
 

@@ -48,7 +48,11 @@ Hardened, startup refuses:
 - `CELINE_OIDC_CLIENT_SECRET` empty or equal to `CELINE_OIDC_CLIENT_ID` (the dev default);
 - `CELINE_OIDC_BASE_URL` / `CELINE_OIDC_JWKS_URI` left on the SDK's local Keycloak default, or no
   audience;
-- `DEV_AUTH_ENABLED=true`.
+- `DEV_AUTH_ENABLED=true`;
+- an upstream URL (`DIGITAL_TWIN_API_URL`, `REC_REGISTRY_URL`, `FLEXIBILITY_API_URL`,
+  `NUDGING_API_URL`, `WEBAPP_API_URL`, `ROI_API_URL`, `ONBOARDING_URL`) on `host.docker.internal`,
+  the local stack's address and the default of all but the last. A deployment sets each to the
+  service's address, or empty to turn its feature off (`503`).
 
 and the access policy fails closed: policies that do not load stop startup, and an evaluation
 error denies. In dev the same findings are one warning at startup, and a missing policy degrades

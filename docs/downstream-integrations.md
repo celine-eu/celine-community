@@ -19,7 +19,7 @@ database workflows such as alert mutations and objective writes are not cached.
 | Energy | `rec_self_consumption`, `rec_self_consumption_daily` |
 | Objective actuals | `rec_objective_progress_daily` |
 | Population and meters | `rec_population_summary`, `rec_meters_health_summary` |
-| Devices and data flow | `rec_meters_missing_intervals`, `rec_points_leaderboard_community`, `rec_device_streaks`, `rec_pipeline_status` |
+| Devices and data flow | `rec_meters_missing_intervals`, `rec_points_leaderboard_community`, `rec_device_streaks`; `rec_pipeline_status` (not asked for, see below) |
 | Flexibility | `rec_flexibility_windows_history`, `rec_flexibility_chain_daily` |
 | Gamification | `rec_points_distribution`, `rec_points_leaderboard_community`, `rec_anti_gaming_flags_community`, `rec_device_points_ledger` |
 | Nudging | Nudging API `GET /admin/analytics/communities/{id}/conversion` |
@@ -113,12 +113,18 @@ error type. The sends view resolves names for its page of rows from the same reg
 Feedback from other browser applications remains in its owning service. The manager BFF proxies
 participant feedback to `WEBAPP_API_URL` and ROI-calculator feedback to `ROI_API_URL`, always after
 `CommunityReadDep` has authorized the requested REC. It forwards the browser's verified token, and
-uses the same list, screenshot and monotonic status contract for both sources. No feedback table is
-read across a service database boundary.
+uses the same list, screenshot and monotonic status contract for both sources, so each upstream
+checks the manager's own token (its audience, `oauth2_proxy` on the platform), not this BFF's. No
+feedback table is read across a service database boundary. Both URLs default to the local stack, and
+outside `CELINE_ENV=dev` start-up refuses that default
+([development](development.md#deployment-posture)): unset in a deployment, every feedback call
+used to answer `502`.
 
 `rec_pipeline_status` and the notification-event portion of the flexibility chain are not yet
 available. These gaps remain
-visible as partial data. The BFF alert workflow is real and persistent, but its production alert
+visible as partial data. The BFF does not ask the Digital Twin for `rec_pipeline_status`: the
+data-flow response lists it in `missingSources` without a call, and returns no pipelines. Reading
+it again is a code change, made when the Twin provides it. The BFF alert workflow is real and persistent, but its production alert
 ingestion source is still to be connected.
 
 The public contract is served at `/api/openapi.json` under `CELINE_ENV=dev` (or with

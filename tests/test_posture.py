@@ -12,7 +12,7 @@ from starlette.requests import Request
 
 from celine.community.api import deps
 from celine.community.security.policy import CommunityAccessPolicy
-from celine.community.settings import Settings, posture_guard, settings
+from celine.community.settings import UPSTREAM_URLS, Settings, posture_guard, settings
 
 HARDENED = ["", "staging"]
 
@@ -42,11 +42,24 @@ def shipped_defaults(celine_env: str) -> Settings:
     )
 
 
+#: In-cluster addresses, as the infra chart sets them.
+DEPLOYED_UPSTREAMS = {
+    "digital_twin_api_url": "http://digital-twin:8002",
+    "rec_registry_url": "http://rec-registry:8004",
+    "flexibility_api_url": "http://flexibility-api:8017",
+    "nudging_api_url": "http://nudging:8016",
+    "webapp_api_url": "http://webapp:8014",
+    "roi_api_url": "http://roi:8000",
+    "onboarding_url": "http://onboarding:8040",
+}
+
+
 def deployed(celine_env: str) -> Settings:
     return Settings(
         _env_file=None,
         celine_env=celine_env,
         environment="",
+        **DEPLOYED_UPSTREAMS,
         database_url="postgresql+asyncpg://community:k3J9x-generated@db.example.org:5432/community",
         oidc=OidcSettings(
             base_url="https://auth.example.org/realms/celine",
@@ -77,6 +90,12 @@ def test_hardened_refuses_every_shipped_default(celine_env: str) -> None:
         "CELINE_OIDC_CLIENT_SECRET",
         "CELINE_OIDC_BASE_URL",
         "CELINE_OIDC_JWKS_URI",
+        "DIGITAL_TWIN_API_URL",
+        "REC_REGISTRY_URL",
+        "FLEXIBILITY_API_URL",
+        "NUDGING_API_URL",
+        "WEBAPP_API_URL",
+        "ROI_API_URL",
     ):
         assert setting in message
 
@@ -104,6 +123,31 @@ def test_hardened_refuses_each_default_on_its_own(celine_env: str) -> None:
         assert [v.setting for v in guard.violations] == [setting]
         with pytest.raises(InsecureConfiguration, match=setting):
             guard.enforce()
+
+
+@pytest.mark.parametrize("celine_env", HARDENED)
+@pytest.mark.parametrize(("setting", "field"), sorted(UPSTREAM_URLS.items()))
+def test_hardened_refuses_an_upstream_left_on_the_local_stack(
+    celine_env: str, setting: str, field: str
+) -> None:
+    """The feedback inbox answered 502 on staging because two of these were never set."""
+    candidate = deployed(celine_env).model_copy(update={field: "http://host.docker.internal:8014/"})
+    guard = posture_guard(candidate)
+
+    assert [v.setting for v in guard.violations] == [setting]
+    with pytest.raises(InsecureConfiguration, match=setting):
+        guard.enforce()
+
+
+@pytest.mark.parametrize("celine_env", HARDENED)
+@pytest.mark.parametrize("field", ["webapp_api_url", "roi_api_url", "onboarding_url"])
+@pytest.mark.parametrize("unset", [None, ""])
+def test_an_unset_upstream_is_a_feature_turned_off(
+    celine_env: str, field: str, unset: str | None
+) -> None:
+    guard = posture_guard(deployed(celine_env).model_copy(update={field: unset}))
+
+    assert guard.violations == []
 
 
 @pytest.mark.parametrize("celine_env", HARDENED)
