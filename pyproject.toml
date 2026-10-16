@@ -12,7 +12,7 @@ dependencies = [
   # 2.0.0: removes `realm_groups` and adds `realm_roles`/`PLATFORM_ADMIN_ROLE`, which
   # this service imports; first release with `celine.sdk.posture` (`docs_urls`
   # included) and `celine.sdk.audit` (main.py, api/deps.py).
-  "celine-sdk>=2.0.0",
+  "celine-sdk>=2.1.1",
   "fastapi>=0.136.1",
   "pydantic>=2.13.3",
   "pydantic-settings>=2.14.0",
